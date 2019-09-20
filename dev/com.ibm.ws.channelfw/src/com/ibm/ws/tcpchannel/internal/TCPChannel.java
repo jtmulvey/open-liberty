@@ -10,6 +10,20 @@
  *******************************************************************************/
 package com.ibm.ws.tcpchannel.internal;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Writer;
+import java.security.KeyPair;
+import java.security.Security;
+import java.util.Collection;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.net.URI;
+
 import java.io.IOException;
 import java.net.Inet6Address;
 import java.net.Socket;
@@ -45,6 +59,18 @@ import com.ibm.wsspi.connmgmt.ConnectionType;
 import com.ibm.wsspi.tcpchannel.TCPConfigConstants;
 import com.ibm.wsspi.tcpchannel.TCPConnectRequestContext;
 import com.ibm.wsspi.tcpchannel.TCPConnectionContext;
+
+import com.ibm.ws.channelfw.org.shredzone.acme4j.*;
+import com.ibm.ws.channelfw.org.shredzone.acme4j.Certificate.*;
+import com.ibm.ws.channelfw.org.shredzone.acme4j.Order.*;
+import com.ibm.ws.channelfw.org.shredzone.acme4j.challenge.*;
+import com.ibm.ws.channelfw.org.shredzone.acme4j.connector.*;
+import com.ibm.ws.channelfw.org.shredzone.acme4j.exception.*;
+import com.ibm.ws.channelfw.org.shredzone.acme4j.provider.*;
+import com.ibm.ws.channelfw.org.shredzone.acme4j.util.*;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+
+
 
 /**
  * Basic TCP channel class.
@@ -93,6 +119,27 @@ public abstract class TCPChannel implements InboundChannel, OutboundChannel, FFD
     protected final AtomicLong totalPartialSyncWrites = new AtomicLong(0);
     protected final AtomicLong totalConnections = new AtomicLong(0);
     protected final AtomicLong maxConcurrentConnections = new AtomicLong(0);
+    
+    // File name of the User Key Pair
+    private static final File USER_KEY_FILE = new File("user.key");
+
+    // File name of the Domain Key Pair
+    private static final File DOMAIN_KEY_FILE = new File("domain.key");
+
+    // File name of the CSR
+    private static final File DOMAIN_CSR_FILE = new File("domain.csr");
+
+    // File name of the signed certificate
+    private static final File DOMAIN_CHAIN_FILE = new File("domain-chain.crt");
+
+    //Challenge type to be used
+    private static final ChallengeType CHALLENGE_TYPE = ChallengeType.HTTP;
+
+    // RSA key size of generated key pairs
+    private static final int KEY_SIZE = 2048;
+
+    private enum ChallengeType { HTTP, DNS }
+
 
     /**
      * Constructor.
@@ -280,6 +327,25 @@ public abstract class TCPChannel implements InboundChannel, OutboundChannel, FFD
                     }
                     Tr.info(tc, TCPChannelMessageConstants.TCP_CHANNEL_STARTED,
                             new Object[] { getExternalName(), this.displayableHostName, String.valueOf(this.endPoint.getListenPort()) });
+
+                    // Add code here to optionally drive LetsEncrypt
+                    //if (this.endPoint.getListenPort() == 443) {
+                    //    System.out.println("*** JTM *** Inside TCPChannel processed channel start on port 443!");;
+                    //    Tr.info(tc, "JTM: call certificate factory - using LetsEncrypt!");
+                        
+                    //    Security.addProvider(new BouncyCastleProvider());
+                        
+                    //    Collection<String> domains = 
+                    //    	    new ArrayList<String>(Arrays.asList(new String[] { "jmulvey.wascloud.net", "jmulvey.wascloud.net" }));
+
+                    //    try {
+                    //       fetchCertificate(domains);
+                    //    }
+                    //    catch (Exception ex) {
+                    //      Tr.error(tc, "JTM: Failed to get a certificate for domains " + domains, ex);
+                    //    }
+
+                    //}
 
                 } catch (IOException e) {
                     FFDCFilter.processException(e, getClass().getName() + ".start", "100", this);
@@ -724,4 +790,325 @@ public abstract class TCPChannel implements InboundChannel, OutboundChannel, FFD
             return null;
         }
     }
+    /**
+     * Generates a certificate for the given domains. Also takes care for the registration
+     * process.
+     *
+     * @param domains
+     *            Domains to get a common certificate for
+     */
+    public void fetchCertificate(Collection<String> domains) throws IOException, AcmeException {
+        // Load the user key file. If there is no key file, create a new one.
+    	Tr.info(tc, "JTM Inside fetchCertificate");
+    	
+    	Tr.info(tc, "JTM fetchCertificate loadOrCreateUserKeyPair()");
+
+    	KeyPair userKeyPair = loadOrCreateUserKeyPair();
+
+        // Create a session for Let's Encrypt.
+        // Use "acme://letsencrypt.org" for production server
+    	Tr.info(tc, "JTM fetchCertificate new session");
+        Session session = new Session("https://acme-staging-v02.api.letsencrypt.org/directory");
+
+        // Get the Account.
+        // If there is no account yet, create a new one.
+    	Tr.info(tc, "JTM fetchCertificate findOrRegisterAccount()");
+        Account acct = findOrRegisterAccount(session, userKeyPair);
+
+        // Load or create a key pair for the domains. This should not be the userKeyPair!
+    	Tr.info(tc, "JTM fetchCertificate loadOrCreateKeyPair()");
+        KeyPair domainKeyPair = loadOrCreateDomainKeyPair();
+
+        // Order the certificate
+    	Tr.info(tc, "JTM fetchCertificate order certificate");
+        Order order = acct.newOrder().domains(domains).create();
+
+        // Perform all required authorizations
+    	Tr.info(tc, "JTM fetchCertificate call getAuthorizations");
+        for (Authorization auth : order.getAuthorizations()) {
+            authorize(auth);
+        }
+
+        // Generate a CSR for all of the domains, and sign it with the domain key pair.
+    	Tr.info(tc, "JTM fetchCertificate generate CSR");
+        CSRBuilder csrb = new CSRBuilder();
+        csrb.addDomains(domains);
+        csrb.sign(domainKeyPair);
+
+        // Write the CSR to a file, for later use.
+    	Tr.info(tc, "JTM write CSR to file: "+DOMAIN_CSR_FILE);
+        try (Writer out = new FileWriter(DOMAIN_CSR_FILE)) {
+            csrb.write(out);
+        }
+
+        // Order the certificate
+    	Tr.info(tc, "JTM order certificate");
+        order.execute(csrb.getEncoded());
+
+        // Wait for the order to complete
+        try {
+        	Tr.info(tc, "JTM wait for order to complete...");
+            int attempts = 10;
+            while (order.getStatus() != Status.VALID && attempts-- > 0) {
+                // Did the order fail?
+                if (order.getStatus() == Status.INVALID) {
+                    throw new AcmeException("Order failed... Giving up.");
+                }
+
+                // Wait for a few seconds
+            	Tr.info(tc, "JTM wait 3 secs...");
+                Thread.sleep(3000L);
+
+                // Then update the status
+                order.update();
+            }
+        } catch (InterruptedException ex) {
+            Tr.error(tc, "JTM: order interrupted");
+            Thread.currentThread().interrupt();
+        }
+
+        // Get the certificate
+        com.ibm.ws.channelfw.org.shredzone.acme4j.Certificate certificate = order.getCertificate();
+        
+        Tr.info(tc, "Success! The certificate for domains " + domains + " has been generated!");
+        Tr.info(tc, "Certificate URL: " + certificate.getLocation());
+
+        // Write a combined file containing the certificate and chain.
+        try (FileWriter fw = new FileWriter(DOMAIN_CHAIN_FILE)) {
+            certificate.writeCertificate(fw);
+        }
+
+        // That's all! Configure your web server to use the DOMAIN_KEY_FILE and
+        // DOMAIN_CHAIN_FILE for the requested domans.
+    }
+
+    /**
+     * Loads a user key pair from {@value #USER_KEY_FILE}. If the file does not exist,
+     * a new key pair is generated and saved.
+     * <p>
+     * Keep this key pair in a safe place! In a production environment, you will not be
+     * able to access your account again if you should lose the key pair.
+     *
+     * @return User's {@link KeyPair}.
+     */
+    private KeyPair loadOrCreateUserKeyPair() throws IOException {
+        if (USER_KEY_FILE.exists()) {
+            // If there is a key file, read it
+            try (FileReader fr = new FileReader(USER_KEY_FILE)) {
+                return KeyPairUtils.readKeyPair(fr);
+            }
+
+        } else {
+            // If there is none, create a new key pair and save it
+            KeyPair userKeyPair = KeyPairUtils.createKeyPair(KEY_SIZE);
+            try (FileWriter fw = new FileWriter(USER_KEY_FILE)) {
+                KeyPairUtils.writeKeyPair(userKeyPair, fw);
+            }
+            return userKeyPair;
+        }
+    }
+
+    /**
+     * Loads a domain key pair from {@value #DOMAIN_KEY_FILE}. If the file does not exist,
+     * a new key pair is generated and saved.
+     *
+     * @return Domain {@link KeyPair}.
+     */
+    private KeyPair loadOrCreateDomainKeyPair() throws IOException {
+        if (DOMAIN_KEY_FILE.exists()) {
+            try (FileReader fr = new FileReader(DOMAIN_KEY_FILE)) {
+                return KeyPairUtils.readKeyPair(fr);
+            }
+        } else {
+            KeyPair domainKeyPair = KeyPairUtils.createKeyPair(KEY_SIZE);
+            try (FileWriter fw = new FileWriter(DOMAIN_KEY_FILE)) {
+                KeyPairUtils.writeKeyPair(domainKeyPair, fw);
+            }
+            return domainKeyPair;
+        }
+    }
+
+    /**
+     * Finds your {@link Account} at the ACME server. It will be found by your user's
+     * public key. If your key is not known to the server yet, a new account will be
+     * created.
+     * <p>
+     * This is a simple way of finding your {@link Account}. A better way is to get the
+     * URL and KeyIdentifier of your new account with {@link Account#getLocation()}
+     * {@link Session#getKeyIdentifier()} and store it somewhere. If you need to get
+     * access to your account later, reconnect to it via
+     * {@link Account#bind(Session, URI)} by using the stored location.
+     *
+     * @param session
+     *            {@link Session} to bind with
+     * @return {@link Login} that is connected to your account
+     */
+    private Account findOrRegisterAccount(Session session, KeyPair accountKey) throws AcmeException {
+        // Ask the user to accept the TOS, if server provides us with a link.
+        URI tos = session.getMetadata().getTermsOfService();
+        //if (tos != null) {
+        //   acceptAgreement(tos);
+        //}
+
+        Account account = new AccountBuilder()
+                        .agreeToTermsOfService()
+                        .useKeyPair(accountKey)
+                        .create(session);
+        Tr.info(tc, "Registered a new user, URL: " + account.getLocation());
+        
+        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
+        
+        return account;
+    }
+
+    /**
+     * Authorize a domain. It will be associated with your account, so you will be able to
+     * retrieve a signed certificate for the domain later.
+     *
+     * @param auth
+     *            {@link Authorization} to perform
+     * @throws IOException 
+     */
+    private void authorize(Authorization auth) throws AcmeException, IOException {
+        Tr.info(tc, "Authorization for domain " + auth.getDomain());
+
+        // The authorization is already valid. No need to process a challenge.
+        if (auth.getStatus() == Status.VALID) {
+            return;
+        }
+
+        // Find the desired challenge and prepare it.
+        Challenge challenge = null;
+        switch (CHALLENGE_TYPE) {
+            case HTTP:
+                challenge = httpChallenge(auth);
+                break;
+
+            case DNS:
+                challenge = dnsChallenge(auth);
+                break;
+        }
+
+        if (challenge == null) {
+            throw new AcmeException("No challenge found");
+        }
+
+        // If the challenge is already verified, there's no need to execute it again.
+        if (challenge.getStatus() == Status.VALID) {
+            return;
+        }
+
+        // Now trigger the challenge.
+        challenge.trigger();
+
+        // Poll for the challenge to complete.
+        try {
+            int attempts = 10;
+            while (challenge.getStatus() != Status.VALID && attempts-- > 0) {
+                // Did the authorization fail?
+                if (challenge.getStatus() == Status.INVALID) {
+                    throw new AcmeException("Challenge failed... Giving up.");
+                }
+
+                // Wait for a few seconds
+                Thread.sleep(3000L);
+
+                // Then update the status
+                challenge.update();
+            }
+        } catch (InterruptedException ex) {
+            Tr.error(tc, "JTM: challenge interrupted", ex);
+            Thread.currentThread().interrupt();
+        }
+
+        // All reattempts are used up and there is still no valid authorization?
+        if (challenge.getStatus() != Status.VALID) {
+            throw new AcmeException("Failed to pass the challenge for domain "
+                    + auth.getDomain() + ", ... Giving up.");
+        }
+    }
+
+    /**
+     * Prepares a HTTP challenge.
+     * <p>
+     * The verification of this challenge expects a file with a certain content to be
+     * reachable at a given path under the domain to be tested.
+     * <p>
+     * This example outputs instructions that need to be executed manually. In a
+     * production environment, you would rather generate this file automatically, or maybe
+     * use a servlet that returns {@link Http01Challenge#getAuthorization()}.
+     *
+     * @param auth
+     *            {@link Authorization} to find the challenge in
+     * @return {@link Challenge} to verify
+     * @throws IOException 
+     */
+    public Challenge httpChallenge(Authorization auth) throws AcmeException, IOException {
+        // Find a single http-01 challenge
+        Http01Challenge challenge = auth.findChallenge(Http01Challenge.TYPE);
+        if (challenge == null) {
+            throw new AcmeException("Found no " + Http01Challenge.TYPE + " challenge, don't know what to do...");
+        }
+
+        // Output the challenge, wait for acknowledge...
+        Tr.info(tc, "Please create a file in your web server's base directory.");
+        Tr.info(tc, "It must be reachable at: http://" + auth.getDomain() + "/.well-known/acme-challenge/" + challenge.getToken());
+        Tr.info(tc, "File name: " + challenge.getToken());
+        Tr.info(tc, "Content: " + challenge.getAuthorization());
+        Tr.info(tc, "The file must not contain any leading or trailing whitespaces or line breaks!");
+        Tr.info(tc, "If you're ready, dismiss the dialog...");
+
+        StringBuilder message = new StringBuilder();
+        // message.append("Please create a file in your web server's base directory.\n\n");
+        // message.append("http://").append(auth.getDomain()).append("/.well-known/acme-challenge/").append(challenge.getToken()).append("\n\n");
+        // message.append("Content:\n\n");
+		        
+        String current = new java.io.File( "." ).getCanonicalPath();
+        Tr.info(tc, "***JTM*** Current dir:"+current);
+        Tr.info(tc, "***JTM*** Create new file name: "+current+"/"+challenge.getToken());
+        Tr.info(tc, "***JTM*** With contents: "+challenge.getAuthorization());
+        String data = challenge.getAuthorization();
+        FileOutputStream out = new FileOutputStream(current+"/"+challenge.getToken());
+        out.write(data.getBytes());
+        out.close();
+        
+        // message.append(challenge.getAuthorization());
+        // acceptChallenge(message.toString());
+
+        return challenge;
+    }
+
+    /**
+     * Prepares a DNS challenge.
+     * <p>
+     * The verification of this challenge expects a TXT record with a certain content.
+     * <p>
+     * This example outputs instructions that need to be executed manually. In a
+     * production environment, you would rather configure your DNS automatically.
+     *
+     * @param auth
+     *            {@link Authorization} to find the challenge in
+     * @return {@link Challenge} to verify
+     */
+    public Challenge dnsChallenge(Authorization auth) throws AcmeException {
+        // Find a single dns-01 challenge
+        Dns01Challenge challenge = auth.findChallenge(Dns01Challenge.TYPE);
+        if (challenge == null) {
+            throw new AcmeException("Found no " + Dns01Challenge.TYPE + " challenge, don't know what to do...");
+        }
+
+        // Output the challenge, wait for acknowledge...
+        Tr.info(tc, "Please create a TXT record:");
+        Tr.info(tc, "_acme-challenge." + auth.getDomain() + ". IN TXT " + challenge.getDigest());
+        Tr.info(tc, "If you're ready, dismiss the dialog...");
+
+        StringBuilder message = new StringBuilder();
+        message.append("Please create a TXT record:\n\n");
+        message.append("_acme-challenge." + auth.getDomain() + ". IN TXT " + challenge.getDigest());
+        // acceptChallenge(message.toString());
+
+        return challenge;
+    }
+
 }
+

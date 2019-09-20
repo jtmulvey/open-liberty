@@ -10,6 +10,10 @@
 #*******************************************************************************
 -include= ~../cnf/resources/bnd/bundle.props
 bVersion=1.0
+javac.source: 1.8
+javac.target: 1.8
+
+Require-Capability: osgi.ee;filter:="(&(osgi.ee=JavaSE)(version=1.8))"
 
 Bundle-Name: Channel Framework
 Bundle-SymbolicName: com.ibm.ws.channelfw; singleton:=true
@@ -20,6 +24,12 @@ Bundle-Description: Provides the channel framework that allows the creation \
 WS-TraceGroup: ChannelFramework
 
 IBM-Default-Config: OSGI-INF/wlp/defaultInstances.xml
+
+Import-Package: org.jose4j.*, \
+	org.slf4j.*, \
+    org.bouncycastle.*, \
+    org.bouncycastle.jce.provider.*, \
+    *
 
 # For each exported package, create (in that package) a package-info.java
 # file, and place an @version javadoc tag in package-level javadoc. 
@@ -81,6 +91,10 @@ instrument.disabled: true
 	com.ibm.ws.timer;version=latest,\
 	com.ibm.ws.kernel.security.thread,\
 	com.ibm.ws.kernel.boot.core;version=latest, \
+    com.ibm.ws.org.jose4j.0.5.1;version=latest,\
+	com.ibm.ws.org.slf4j.api.1.7.7;version=latest,\
+	com.ibm.ws.org.bcprov.jdk15on.1.60;version=latest,\
+	com.ibm.ws.org.bcpkix.jdk15on.1.60;version=latest, \
 	com.ibm.ws.org.osgi.annotation.versioning;version=latest
 
 #  <property name="unittest.prop.com.ibm.ws.logging.exception.log.enabled" value="false" />

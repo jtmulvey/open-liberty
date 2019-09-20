@@ -12,7 +12,6 @@ repositories {
 }
 
 dependencies {
-    compile group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.0'
     compile group: 'org.bouncycastle', name: 'bcprov-jdk15on',  version: '1.60'
     compile group: 'org.bouncycastle', name: 'bcpkix-jdk15on',  version: '1.60'
 }

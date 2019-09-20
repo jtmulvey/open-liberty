@@ -1,0 +1,24 @@
+#*******************************************************************************
+# Copyright (c) 2017 IBM Corporation and others.
+# All rights reserved. This program and the accompanying materials
+# are made available under the terms of the Eclipse Public License v1.0
+# which accompanies this distribution, and is available at
+# http://www.eclipse.org/legal/epl-v10.html
+#
+# Contributors:
+#     IBM Corporation - initial API and implementation
+#*******************************************************************************
+-include= ~../cnf/resources/bnd/bundle.props
+bVersion=1.0
+
+Bundle-Name: BouncyCastle PKIX
+Bundle-SymbolicName: com.ibm.ws.org.bcpkix.jdk15on.1.60
+Bundle-Description: Bouncy Castle Kix library, version=${bVersion}
+
+WS-TraceGroup: SSL
+
+instrument.disabled: true
+
+-includeresource: /Users/jamesmulvey/Documents/bcpkix-jdk15on-1.60
+   
+Export-Package: org.bouncycastle.*;version=1.60

@@ -63,80 +63,99 @@ public final class WebAppEventSource implements
     //application listener
     public final void addApplicationListener(ApplicationListener al){
         _applicationListeners.addListener(al);
+        System.out.println("WebAppEventSource: Inside addListener!");
     }
 
     public final void removeApplicationListener(ApplicationListener al){
         _applicationListeners.removeListener(al);
+        System.out.println("WebAppEventSource: Inside removeListener!");
     }
 
     public final void onApplicationStart(ApplicationEvent evt){
         _applicationListeners.fireEvent(evt, FireOnApplicationStart.instance());
+        System.out.println("WebAppEventSource: fireEvent onApplication start! Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onApplicationEnd(ApplicationEvent evt){
         _applicationListeners.fireEvent(evt, FireOnApplicationEnd.instance());
+        System.out.println("WebAppEventSource: fireEvent onApplication end! Servlet names: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onApplicationAvailableForService(ApplicationEvent evt){
         _applicationListeners.fireEvent(evt, FireOnApplicationAvailableForService.instance());
+        System.out.println("WebAppEventSource: fireEvent onApplication available for service. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onApplicationUnavailableForService(ApplicationEvent evt){
         _applicationListeners.fireEvent(evt, FireOnApplicationUnavailableForService.instance());
+        System.out.println("WebAppEventSource: fireEvent onApplication unavailable for service! Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     //servlet invocation listener
     public final void addServletInvocationListener(ServletInvocationListener sil){
         _invocationListeners.addListener(sil);
+        System.out.println("WebAppEventSource: addServletInvocationListener");
     }
 
     public final void removeServletInvocationListener(ServletInvocationListener sil){
         _invocationListeners.removeListener(sil);
+        System.out.println("WebAppEventSource: removeServletInvocationListener");
     }
 
     public final void onServletStartService(ServletInvocationEvent evt){
         _invocationListeners.fireEvent(evt, FireOnServletStartService.instance());
+        System.out.println("WebAppEventSource: onServletInvocationListener. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onServletFinishService(ServletInvocationEvent evt){
         _invocationListeners.fireEvent(evt, FireOnServletFinishService.instance());
+        System.out.println("WebAppEventSource: onServletInvocationListener. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     //servlet listener
     public final void addServletListener(ServletListener sl){
         _servletListeners.addListener(sl);
+        System.out.println("WebAppEventSource: addServletListener");
     }
 
     public final void removeServletListener(ServletListener sl){
         _servletListeners.removeListener(sl);
+        System.out.println("WebAppEventSource: removeServletListener");
     }
 
     public final void onServletStartInit(ServletEvent evt){
         _servletListeners.fireEvent(evt, FireOnServletStartInit.instance());
+        System.out.println("WebAppEventSource: onServletStartInit. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onServletFinishInit(ServletEvent evt){
         _servletListeners.fireEvent(evt, FireOnServletFinishInit.instance());
+        System.out.println("WebAppEventSource: onServletFinishInit. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onServletStartDestroy(ServletEvent evt){
         _servletListeners.fireEvent(evt, FireOnServletStartDestroy.instance());
+        System.out.println("WebAppEventSource: onServletStartDestroy. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onServletFinishDestroy(ServletEvent evt){
         _servletListeners.fireEvent(evt, FireOnServletFinishDestroy.instance());
+        System.out.println("WebAppEventSource: onServletFinishDestroy . Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onServletAvailableForService(ServletEvent evt){
         _servletListeners.fireEvent(evt, FireOnServletAvailableForService.instance());
+        System.out.println("WebAppEventSource: onServletAvailableforService. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onServletUnavailableForService(ServletEvent evt){
         _servletListeners.fireEvent(evt, FireOnServletUnavailableForService.instance());
+        System.out.println("WebAppEventSource: onServletUnavailableforService. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     public final void onServletUnloaded(ServletEvent evt){
         _servletListeners.fireEvent(evt, FireOnServletUnloaded.instance());
+        System.out.println("WebAppEventSource: onServletUnloaded. Servlet name: "+evt.getServletContext().getServletContextName());
     }
 
     //servlet error listener

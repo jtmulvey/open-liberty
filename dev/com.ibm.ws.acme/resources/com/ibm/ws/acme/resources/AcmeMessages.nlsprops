@@ -1,0 +1,23 @@
+# IBM Confidential OCO Source Material
+# (C) COPYRIGHT International Business Machines Corp. 2011, 2013.
+# The source code for this program is not published or otherwise divested
+# of its trade secrets, irrespective of what has been deposited with the
+# U.S. Copyright Office.
+# -------------------------------------------------------------------------------------------------
+#CMVCPATHNAME com.ibm.acme.repository/resources/com/ibm/ws/acme/repository/internal/resources/AcmeMessages.nlsprops
+#COMPONENTPREFIX CWWKX
+#COMPONENTNAMEFOR WebSphere ACME
+#ISMESSAGEFILE TRUE
+#NLS_MESSAGEFORMAT_VAR
+#NLS_ENCODING=UNICODE
+# -------------------------------------------------------------------------------------------------
+
+# TODO: Get the correct Message Prefix block for ACME feature
+# liberty wiki should have a list of the Message Prefix
+# Message prefix block: CWWKJ0200 - CWWKJ0299
+
+#-----  ACME messages
+
+CWWKX0000I=CWWKX0000I: Test message
+CWWKX0000I.explanation= Test message description
+CWWKX0000I.useraction= No action is necessary at this time
