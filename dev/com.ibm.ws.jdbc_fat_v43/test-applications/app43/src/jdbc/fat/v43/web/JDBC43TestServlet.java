@@ -82,6 +82,12 @@ public class JDBC43TestServlet extends FATServlet {
     @Resource(lookup = "jdbc/ds", authenticationType = AuthenticationType.CONTAINER, name = "java:module/env/jdbc/ds-with-container-auth")
     DataSource dataSourceWithContainerAuth;
 
+    @Resource(lookup = "jdbc/defaultShardingMatchCurrentState")
+    DataSource dataSourceWithDefaultSharding; // shardingKey=CHAR:DefaultShardingKey; superShardingKey=VARCHAR:DefaultSuperKey;
+
+    @Resource(lookup = "jdbc/xaDerby42")
+    DataSource derbyJDBC42XADataSource;
+
     @Resource(lookup = "jdbc/matchCurrentState", authenticationType = AuthenticationType.APPLICATION)
     DataSource sharablePoolDataSourceMatchCurrentState;
 
@@ -555,6 +561,94 @@ public class JDBC43TestServlet extends FATServlet {
     }
 
     /**
+     * Use a JDBC 4.2 driver with the Liberty JDBC 4.3 feature enabled.
+     * It should still be usable, but of course won't have any of the JDBC 4.3 function such as
+     * sharding that needs to be implemented by the JDBC driver.
+     * JDBC 4.3 methods for which Java SE provides default implementations must be invokable
+     * and must return results that are consistent with the default implementation.
+     */
+    @ExpectedFFDC({ "java.sql.SQLFeatureNotSupportedException", // when attempting JDBC 4.3 methods on the JDBC 4.2 driver
+                    "com.ibm.ws.rsadapter.exceptions.DataStoreAdapterException", // when attempting to use connection builder with sharding
+                    "javax.resource.spi.ResourceAllocationException" // when attempting to use connection builder with sharding
+    })
+    @Test
+    public void testJDBC42DriverWithJDBC43FeatureEnabled() throws Exception {
+        // use another data source to get a sharding key that we will later attempt to set on the connection
+        ShardingKey key = sharableXADataSource.createShardingKeyBuilder().subkey("1", JDBCType.BIT).build();
+
+        // Connection builder is implemented by the Liberty JDBC 4.3 feature,
+        // and so is usable, as long as sharding isn't specified
+        ConnectionBuilder conbuilder = derbyJDBC42XADataSource.createConnectionBuilder();
+        try (Connection con = conbuilder.build()) {
+            DatabaseMetaData mdata = con.getMetaData();
+            assertEquals(4, mdata.getJDBCMajorVersion());
+            assertEquals(2, mdata.getJDBCMinorVersion());
+            assertFalse(mdata.supportsSharding());
+
+            // Use a JDBC 4.1 method
+            assertEquals("USER43", con.getSchema().toUpperCase());
+
+            // per JavaDoc, the default implementation of beginRequest a no-op, and therefore it should not raise an error
+            con.beginRequest();
+
+            // default implementations provided by Java SE for these methods apply even if driver does not support JDBC 4.3,
+            PreparedStatement ps = con.prepareStatement("INSERT INTO STREETS VALUES(?, ?, ?)");
+            assertEquals("\"lessThan4'x8'\"", ps.enquoteIdentifier("lessThan4'x8'", false));
+            assertTrue(ps.isSimpleIdentifier("OUT_OF_STOCK"));
+
+            try {
+                con.setShardingKey(key);
+                fail("Should not be able to set a sharding key on a JDBC 4.2 driver");
+            } catch (SQLFeatureNotSupportedException x) {
+            }
+
+            try {
+                con.setShardingKey(key, key);
+                fail("Should not be able to set a sharding key and super sharding key on a JDBC 4.2 driver");
+            } catch (SQLFeatureNotSupportedException x) {
+            }
+
+            try {
+                con.setShardingKeyIfValid(key, 150);
+                fail("Should not be able to validate and set a sharding key on a JDBC 4.2 driver");
+            } catch (SQLFeatureNotSupportedException x) {
+            }
+
+            try {
+                con.setShardingKeyIfValid(key, key, 151);
+                fail("Should not be able to validate and set a sharding key and super sharding key on a JDBC 4.2 driver");
+            } catch (SQLFeatureNotSupportedException x) {
+            }
+
+            ps.setString(1, "Prairie Vista Drive NW");
+            ps.setString(2, "Rochester");
+            ps.setString(3, "MN");
+
+            // use a JDBC 4.2 method
+            assertEquals(1, ps.executeLargeUpdate());
+
+            ps.close();
+
+            // per JavaDoc, the default implementation of endRequest a no-op, and therefore it should not raise an error
+            con.endRequest();
+        }
+
+        try {
+            ShardingKeyBuilder keybuilder = derbyJDBC42XADataSource.createShardingKeyBuilder();
+            fail("Created sharding key builder " + keybuilder + " for JDBC 4.2 driver");
+        } catch (SQLFeatureNotSupportedException x) {
+        }
+
+        conbuilder.shardingKey(key);
+        try {
+            Connection con = conbuilder.build();
+            con.close();
+            fail("Built a connection with sharding " + con + " for JDBC 4.2 driver");
+        } catch (SQLFeatureNotSupportedException x) {
+        }
+    }
+
+    /**
      * Verify that that DatabaseMetaData indicates spec version 4.3 and that the method supports sharding is functional
      */
     @Test
@@ -566,7 +660,7 @@ public class JDBC43TestServlet extends FATServlet {
             assertEquals(4, mdata.getJDBCMajorVersion());
             assertEquals(3, mdata.getJDBCMinorVersion());
 
-            assertFalse(mdata.supportsSharding());
+            assertTrue(mdata.supportsSharding());
         } finally {
             con.close();
         }
@@ -743,7 +837,7 @@ public class JDBC43TestServlet extends FATServlet {
      * Abort a sharable connection from a thread other than the thread that is using it.
      * Verify that endRequest is invoked on the JDBC driver.
      */
-    //@AllowedFFDC("javax.transaction.xa.XAException") // seen by transaction manager for aborted connection
+    @AllowedFFDC("javax.transaction.xa.XAException") // seen by transaction manager for aborted connection
     @Test
     public void testOtherThreadAbortSharable() throws Exception {
         AtomicInteger[] requests;
@@ -756,7 +850,7 @@ public class JDBC43TestServlet extends FATServlet {
             ends = requests[END].get();
             assertEquals(ends + 1, begins);
 
-            //con1.setAutoCommit(false); // TODO enable once abort path is fixed
+            con1.setAutoCommit(false);
             PreparedStatement ps = con1.prepareStatement("INSERT INTO STREETS VALUES(?, ?, ?)");
             ps.setString(1, "Overland Drive NW");
             ps.setString(2, "Rochester");
@@ -794,9 +888,9 @@ public class JDBC43TestServlet extends FATServlet {
             }).get(TIMEOUT_NS, TimeUnit.NANOSECONDS);
         }
 
+        assertEquals(ends + 1, requests[END].get());
         tx.begin();
         try {
-            assertEquals(ends + 1, requests[END].get());
 
             Connection con3 = sharableXADataSource.getConnection();
             requests = (AtomicInteger[]) con3.unwrap(Supplier.class).get();
@@ -807,23 +901,22 @@ public class JDBC43TestServlet extends FATServlet {
             PreparedStatement ps3 = con3.prepareStatement("SELECT CITY, STATE FROM STREETS WHERE NAME = ?");
             ps3.setString(1, "Overland Drive NW");
             ResultSet result = ps3.executeQuery();
-            //assertFalse(result.next()); // TODO enable once prior TODOs are removed
+            assertFalse(result.next());
             ps3.close();
 
             Connection con4 = sharableXADataSource.getConnection();
             PreparedStatement ps4 = con4.prepareStatement("SELECT CITY, STATE FROM STREETS WHERE NAME = ?");
             ps4.setString(1, "Essex Parkway NW");
             result = ps4.executeQuery();
-            //assertFalse(result.next()); // TODO enable once prior TODOs are removed
+            assertFalse(result.next());
 
-            //con4.close(); // TODO replace with the following once the abort path is fixed to invoke ManagedConnection.destroy when the transaction ends.
-            //singleThreadExecutor.submit(new Callable<Void>() {
-            //    @Override
-            //    public Void call() throws SQLException {
-            //        con4.abort(singleThreadExecutor);
-            //        return null;
-            //    }
-            //}).get(TIMEOUT_NS, TimeUnit.NANOSECONDS);
+            singleThreadExecutor.submit(new Callable<Void>() {
+                @Override
+                public Void call() throws SQLException {
+                    con4.abort(singleThreadExecutor);
+                    return null;
+                }
+            }).get(TIMEOUT_NS, TimeUnit.NANOSECONDS);
         } finally {
             tx.rollback();
         }
@@ -835,7 +928,7 @@ public class JDBC43TestServlet extends FATServlet {
      * Abort an unsharable connection from a thread other than the thread that is using it.
      * Verify that endRequest is invoked on the JDBC driver in response to the abort.
      */
-    //@AllowedFFDC("javax.transaction.xa.XAException") // seen by transaction manager for aborted connection
+    @AllowedFFDC("javax.transaction.xa.XAException") // seen by transaction manager for aborted connection
     @Test
     public void testOtherThreadAbortUnsharable() throws Exception {
         AtomicInteger[] requests;
@@ -848,7 +941,7 @@ public class JDBC43TestServlet extends FATServlet {
             ends = requests[END].get();
             assertEquals(ends + 1, begins);
 
-            //con1.setAutoCommit(false); //TODO enable once abort path is fixed
+            con1.setAutoCommit(false);
             PreparedStatement ps = con1.prepareStatement("INSERT INTO STREETS VALUES(?, ?, ?)");
             ps.setString(1, "Badger Hills Drive NW");
             ps.setString(2, "Rochester");
@@ -864,10 +957,9 @@ public class JDBC43TestServlet extends FATServlet {
             }).get(TIMEOUT_NS, TimeUnit.NANOSECONDS);
         }
 
-        // TODO Why is crossing the LTC boundary needed for ManagedConnection.destroy/Connection.endRequest to be invoked after abort?
+        assertEquals(ends + 1, requests[END].get());
         tx.begin();
         try {
-            assertEquals(ends + 1, requests[END].get()); // TODO move the assert before tx.begin once abort path is fixed
 
             final Connection con2 = unsharableXADataSource.getConnection();
             try {
@@ -879,18 +971,15 @@ public class JDBC43TestServlet extends FATServlet {
                 PreparedStatement ps2 = con2.prepareStatement("SELECT CITY, STATE FROM STREETS WHERE NAME = ?");
                 ps2.setString(1, "Badger Hills Drive NW");
                 ResultSet result = ps2.executeQuery();
-                // assertFalse(result.next()); //TODO enable once prior TODOs are removed
+                assertFalse(result.next());
             } finally {
-                con2.close(); // TODO replace with the following once the abort path is fixed such that
-                // ManagedConnection.destroy is invoked either upon abort or when the transaction ends.
-                // Currently, destroy is not invoked until server shutdown!
-                //singleThreadExecutor.submit(new Callable<Void>() {
-                //    @Override
-                //    public Void call() throws SQLException {
-                //        con2.abort(singleThreadExecutor);
-                //        return null;
-                //    }
-                //}).get(TIMEOUT_NS, TimeUnit.NANOSECONDS);
+                singleThreadExecutor.submit(new Callable<Void>() {
+                    @Override
+                    public Void call() throws SQLException {
+                        con2.abort(singleThreadExecutor);
+                        return null;
+                    }
+                }).get(TIMEOUT_NS, TimeUnit.NANOSECONDS);
             }
         } finally {
             tx.rollback();
@@ -1112,7 +1201,7 @@ public class JDBC43TestServlet extends FATServlet {
             ends = requests[END].get();
             assertEquals(ends + 1, begins);
 
-            // con1.setAutoCommit(false); // TODO enable once abort path is fixed
+            con1.setAutoCommit(false);
             PreparedStatement ps = con1.prepareStatement("INSERT INTO STREETS VALUES(?, ?, ?)");
             ps.setString(1, "Superior Drive NW");
             ps.setString(2, "Rochester");
@@ -1152,14 +1241,14 @@ public class JDBC43TestServlet extends FATServlet {
             PreparedStatement ps3 = con3.prepareStatement("SELECT CITY, STATE FROM STREETS WHERE NAME = ?");
             ps3.setString(1, "Superior Drive NW");
             ResultSet result = ps3.executeQuery();
-            // assertFalse(result.next()); // TODO enable once prior TODOs are removed
+            assertFalse(result.next());
             ps3.close();
 
             Connection con4 = defaultDataSource.getConnection();
             PreparedStatement ps4 = con4.prepareStatement("SELECT CITY, STATE FROM STREETS WHERE NAME = ?");
             ps4.setString(1, "Technology Drive NW");
             result = ps4.executeQuery();
-            // assertFalse(result.next()); // TODO enable once prior TODOs are removed
+            assertFalse(result.next());
 
             con4.abort(singleThreadExecutor);
         } finally {
@@ -1186,7 +1275,7 @@ public class JDBC43TestServlet extends FATServlet {
             ends = requests[END].get();
             assertEquals(ends + 1, begins);
 
-            // con1.setAutoCommit(false); TODO enable once abort path is fixed
+            con1.setAutoCommit(false);
             PreparedStatement ps = con1.prepareStatement("INSERT INTO STREETS VALUES(?, ?, ?)");
             ps.setString(1, "Commerce Drive NW");
             ps.setString(2, "Rochester");
@@ -1196,11 +1285,9 @@ public class JDBC43TestServlet extends FATServlet {
             con1.abort(singleThreadExecutor);
         }
 
-        // TODO Why is crossing the LTC boundary needed for ManagedConnection.destroy/Connection.endRequest to be invoked after abort?
+        assertEquals(ends + 1, requests[END].get());
         tx.begin();
         try {
-            assertEquals(ends + 1, requests[END].get()); // TODO move the assert before tx.begin once abort path is fixed
-
             Connection con2 = unsharablePool1DataSource.getConnection();
             try {
                 requests = (AtomicInteger[]) con2.unwrap(Supplier.class).get();
@@ -1211,7 +1298,7 @@ public class JDBC43TestServlet extends FATServlet {
                 PreparedStatement ps2 = con2.prepareStatement("SELECT CITY, STATE FROM STREETS WHERE NAME = ?");
                 ps2.setString(1, "Commerce Drive NW");
                 ResultSet result = ps2.executeQuery();
-                // assertFalse(result.next()); TODO enable once prior TODOs are removed
+                assertFalse(result.next());
             } finally {
                 con2.abort(singleThreadExecutor);
             }
@@ -2396,6 +2483,59 @@ public class JDBC43TestServlet extends FATServlet {
             ps.close();
         } finally {
             c.close();
+        }
+    }
+
+    @Test
+    public void testVendorSpecificDefaultShardingKeys() throws Exception {
+        ShardingKey key1 = dataSourceWithDefaultSharding.createShardingKeyBuilder().subkey("VSDSK", JDBCType.LONGVARBINARY).build();
+        ConnectionBuilder conbuilder1 = dataSourceWithDefaultSharding.createConnectionBuilder();
+        ConnectionBuilder conbuilder2 = dataSourceWithDefaultSharding.createConnectionBuilder().shardingKey(null);
+        ConnectionBuilder conbuilder3 = dataSourceWithDefaultSharding.createConnectionBuilder().shardingKey(key1).superShardingKey(null);
+        String k;
+
+        tx.begin();
+        try {
+            Connection con1 = conbuilder1.build();
+            // expect default sharding keys from the data source config in server.xml
+            k = con1.getClientInfo("SHARDING_KEY"); // extension by mock JDBC driver to determine the sharding key
+            assertTrue(k, k.endsWith("|CHAR:DefaultShardingKey;"));
+            k = con1.getClientInfo("SUPER_SHARDING_KEY"); // extension by mock JDBC driver to determine the super sharding key
+            assertTrue(k, k.endsWith("|VARCHAR:DefaultSuperKey;"));
+
+            // connection request (with null/unspecified keys) that shares the same connection by matching current state
+            Connection con2 = conbuilder2.build();
+            k = con2.getClientInfo("SHARDING_KEY"); // extension by mock JDBC driver to determine the sharding key
+            assertTrue(k, k.endsWith("|CHAR:DefaultShardingKey;"));
+            k = con2.getClientInfo("SUPER_SHARDING_KEY"); // extension by mock JDBC driver to determine the super sharding key
+            assertTrue(k, k.endsWith("|VARCHAR:DefaultSuperKey;"));
+            con2.close();
+
+            con1.setShardingKey(key1);
+
+            // connection request (with key1/null keys) that shares the same connection by matching current state
+            Connection con3 = conbuilder3.build();
+            k = con3.getClientInfo("SHARDING_KEY"); // extension by mock JDBC driver to determine the sharding key
+            assertTrue(k, k.endsWith("|LONGVARBINARY:VSDSK;"));
+            k = con3.getClientInfo("SUPER_SHARDING_KEY"); // extension by mock JDBC driver to determine the super sharding key
+            assertTrue(k, k.endsWith("|VARCHAR:DefaultSuperKey;"));
+            con3.close();
+
+            con1.setShardingKey(key1, key1);
+            con1.close();
+        } finally {
+            tx.rollback();
+        }
+
+        // Are the values reset to null/defaults when reusing a connection from the pool?
+        Connection con4 = conbuilder2.build();
+        try {
+            k = con4.getClientInfo("SHARDING_KEY"); // extension by mock JDBC driver to determine the sharding key
+            assertTrue(k, k.endsWith("|CHAR:DefaultShardingKey;"));
+            k = con4.getClientInfo("SUPER_SHARDING_KEY"); // extension by mock JDBC driver to determine the super sharding key
+            assertTrue(k, k.endsWith("|VARCHAR:DefaultSuperKey;"));
+        } finally {
+            con4.close();
         }
     }
 

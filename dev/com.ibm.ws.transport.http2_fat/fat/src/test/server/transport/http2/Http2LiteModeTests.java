@@ -283,10 +283,11 @@ public class Http2LiteModeTests extends FATServletClient {
      *
      * @throws Exception
      */
-    @Test
-    public void testDataOnStreamZero() throws Exception {
-        runTest(genericServletPath, testName.getMethodName());
-    }
+    // Moved to trace, build break 259034
+    //@Test
+    //public void testDataOnStreamZero() throws Exception {
+    //    runTest(genericServletPath, testName.getMethodName());
+    //}
 
     /**
      * Test Coverage: Client starts a stream 7, then starts a stream 5, which is illegal;
@@ -371,10 +372,11 @@ public class Http2LiteModeTests extends FATServletClient {
      *
      * @throws Exception
      */
-    @Test
-    public void testZeroLengthPadding() throws Exception {
-        runTest(dataServletPath, testName.getMethodName());
-    }
+    // Moved to trace
+    //@Test
+    //public void testZeroLengthPadding() throws Exception {
+    //    runTest(dataServletPath, testName.getMethodName());
+    //}
 
     /**
      * Test Coverage: Send a DATA frame with a frame length of 5 and a padding length of 6.
@@ -383,6 +385,7 @@ public class Http2LiteModeTests extends FATServletClient {
      *
      * @throws Exception
      */
+
     @Test
     public void testInvalidPaddingValue() throws Exception {
         runTest(dataServletPath, testName.getMethodName());
@@ -544,4 +547,33 @@ public class Http2LiteModeTests extends FATServletClient {
     public void testModifiedInitialWindowSizeAfterHeaderFrame() throws Exception {
         runTest(defaultServletPath, testName.getMethodName());
     }
+
+    /**
+     * Test Coverage: Connect to server via the insecure port and immediately send the HTTP/2 magic string.
+     * The HTTP/2 connection preface should complete.
+     * Then send a standard HTTP/2 request
+     * Test Outcome: HTTP/2 response arrives as expected.
+     * Spec Section: 3.4
+     * 
+     * @throws Exception
+     */
+    @Test
+    public void testHeaderAndDataPriorKnowledge() throws Exception {
+        runTest(defaultServletPath, testName.getMethodName());
+    }
+
+    /**
+     * Test Coverage: Connect to server via the insecure port and immediately send the HTTP/2 magic string.
+     * The HTTP/2 connection preface should complete.
+     * Then send a standard HTTP/2 POST request and body
+     * Test Outcome: HTTP/2 response arrives as expected.
+     * Spec Section: 3.4
+
+     * @throws Exception
+     */
+    @Test
+    public void testPostRequestDataKnowledge() throws Exception {
+        runTest(defaultServletPath, testName.getMethodName());
+    }
+
 }

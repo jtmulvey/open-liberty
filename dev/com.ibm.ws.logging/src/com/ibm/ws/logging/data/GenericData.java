@@ -20,14 +20,12 @@ public class GenericData {
 
     private String jsonMessage = null;
 
-    private Integer lastIndex = -1;
+    private int lastIndex = -1;
 
-    //to be removed
     public GenericData() {
         pairs = new KeyValuePair[DEFAULT_SIZE];
     }
 
-    //to be removed
     public GenericData(int size) {
         pairs = new KeyValuePair[size];
     }
@@ -125,16 +123,6 @@ public class GenericData {
         return pairs;
     }
 
-    // to be removed
-    public String getSourceType() {
-        return getSourceName();
-    }
-
-    // to be removed
-    public void setSourceType(String sourceType) {
-        setSourceName(sourceType);
-    }
-
     public String getSourceName() {
         return sourceName;
     }
@@ -190,4 +178,5 @@ public class GenericData {
     public void setJsonMessage(String jsonMessage) {
         this.jsonMessage = jsonMessage;
     }
+
 }

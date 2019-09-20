@@ -31,12 +31,14 @@ import com.ibm.ws.security.fat.common.expectations.Expectations;
 import com.ibm.ws.security.fat.common.expectations.ResponseFullExpectation;
 import com.ibm.ws.security.fat.common.expectations.ResponseTitleExpectation;
 import com.ibm.ws.security.fat.common.expectations.ServerMessageExpectation;
+import com.ibm.ws.security.fat.common.utils.CommonWaitForAppChecks;
 import com.ibm.ws.security.fat.common.validation.TestValidationUtils;
 import com.ibm.ws.security.jwtsso.fat.utils.CommonExpectations;
 import com.ibm.ws.security.jwtsso.fat.utils.JwtFatActions;
 import com.ibm.ws.security.jwtsso.fat.utils.JwtFatConstants;
 import com.ibm.ws.security.jwtsso.fat.utils.MessageConstants;
 
+import componenttest.annotation.AllowedFFDC;
 import componenttest.annotation.ExpectedFFDC;
 import componenttest.annotation.Server;
 import componenttest.custom.junit.runner.FATRunner;
@@ -65,7 +67,7 @@ public class ConfigAttributeTests extends CommonSecurityFat {
     public static void setUp() throws Exception {
         server.addInstalledAppForValidation(JwtFatConstants.APP_FORMLOGIN);
         serverTracker.addServer(server);
-        server.startServerUsingExpandedConfiguration("server_withFeature.xml");
+        server.startServerUsingExpandedConfiguration("server_withFeature.xml", CommonWaitForAppChecks.getSSLChannelReadyMsgs());
     }
 
     @Before
@@ -316,9 +318,9 @@ public class ConfigAttributeTests extends CommonSecurityFat {
      * see evidence in the logs that the customized issuer was presented.
      * That's all we care about.
      */
-    @ExpectedFFDC({ "com.ibm.websphere.security.jwt.InvalidClaimException",
-                    "com.ibm.websphere.security.jwt.InvalidTokenException",
-                    "com.ibm.ws.security.authentication.AuthenticationException" })
+    @AllowedFFDC({ "com.ibm.websphere.security.jwt.InvalidClaimException",
+                   "com.ibm.websphere.security.jwt.InvalidTokenException",
+                   "com.ibm.ws.security.authentication.AuthenticationException" })
     @Mode(TestMode.LITE)
     @Test
     public void test_validBuilderRef() throws Exception {
@@ -384,7 +386,8 @@ public class ConfigAttributeTests extends CommonSecurityFat {
      * Test the detection of the mpJwt server config element. Specify an extra element and try to authenticate.
      * We should get an error message about the extra element.
      */
-    @ExpectedFFDC({ "com.ibm.ws.security.mp.jwt.error.MpJwtProcessingException", "com.ibm.ws.security.authentication.AuthenticationException" })
+    @ExpectedFFDC({ "com.ibm.ws.security.mp.jwt.error.MpJwtProcessingException" })
+    @AllowedFFDC({ "com.ibm.ws.security.authentication.AuthenticationException" })
     @Mode(TestMode.LITE)
     @Test
     public void test_invalidConsumerRef() throws Exception {
@@ -419,13 +422,13 @@ public class ConfigAttributeTests extends CommonSecurityFat {
     @Mode(TestMode.LITE)
     @Test
     public void test_useLtpaIfJwtAbsent_true() throws Exception {
-        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_noFeature.xml");
+        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_noFeature.xml", MessageConstants.CWWKT0016I_WEB_APP_AVAILABLE + ".*formlogin");
 
         // Obtain a valid LTPA token
         Cookie ltpaCookie = actions.logInAndObtainLtpaCookie(_testName, protectedUrl, defaultUser, defaultPassword);
 
         // Enable useLtpaIfJwtAbsent
-        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_useLtpaIfJwtAbsent_true.xml");
+        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_useLtpaIfJwtAbsent_true.xml", MessageConstants.CWWKT0016I_WEB_APP_AVAILABLE + ".*formlogin");
 
         String currentAction = TestActions.ACTION_INVOKE_PROTECTED_RESOURCE;
 
@@ -460,13 +463,13 @@ public class ConfigAttributeTests extends CommonSecurityFat {
     @Mode(TestMode.LITE)
     @Test
     public void test_useLtpaIfJwtAbsent_false() throws Exception {
-        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_noFeature.xml");
+        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_noFeature.xml", MessageConstants.CWWKT0016I_WEB_APP_AVAILABLE + ".*formlogin");
 
         // Obtain a valid LTPA token
         Cookie ltpaCookie = actions.logInAndObtainLtpaCookie(_testName, protectedUrl, defaultUser, defaultPassword);
 
         // Disable useLtpaIfJwtAbsent
-        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_useLtpaIfJwtAbsent_false.xml");
+        server.reconfigureServerUsingExpandedConfiguration(_testName, "server_useLtpaIfJwtAbsent_false.xml", MessageConstants.CWWKT0016I_WEB_APP_AVAILABLE + ".*formlogin");
 
         String currentAction = TestActions.ACTION_INVOKE_PROTECTED_RESOURCE;
 

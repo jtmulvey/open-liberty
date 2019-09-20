@@ -1,14 +1,13 @@
-/*
- * IBM Confidential
+/*******************************************************************************
+ * Copyright (c) 2012,2019 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
+ * which accompanies this distribution, and is available at
+ * http://www.eclipse.org/legal/epl-v10.html
  *
- * OCO Source Materials
- *
- * Copyright IBM Corp. 2012, 2018
- *
- * The source code for this program is not published or otherwise divested
- * of its trade secrets, irrespective of what has been deposited with the
- * U.S. Copyright Office.
- */
+ * Contributors:
+ *     IBM Corporation - initial API and implementation
+ *******************************************************************************/
 package com.ibm.ws.artifact.zip.cache;
 
 import com.ibm.websphere.ras.Tr;
@@ -236,7 +235,7 @@ public class ZipCachingProperties {
             String methodName,
             String propertyName, Object propertyValue, boolean defaulted) {
 
-        if ( tc.isDebugEnabled() ) {
+        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled() ) {
             String propertyText =
                 "Property [ " + propertyName + " ]" +
                 " [ " + propertyValue + " ]" +
@@ -518,7 +517,7 @@ public class ZipCachingProperties {
         if ( nano < 0 ) {
             return "-" + toAbsSec(-1 * nano, padLeft);
         } else if ( nano == 0 ) {
-            return PAD.substring(0, padLeft) + "." + PAD.substring(PAD_RIGHT);
+            return PAD.substring(0, padLeft) + "." + PAD.substring(0, PAD_RIGHT);
         }
 
         String nanoText = Long.toString(nano);
@@ -555,7 +554,7 @@ public class ZipCachingProperties {
             }
             return PAD.substring(0, padLeft) +
                    "." +
-                   PAD.substring(PAD_RIGHT - 1) + "*";
+                   PAD.substring(0, PAD_RIGHT - 1) + "*";
         }
     }
 

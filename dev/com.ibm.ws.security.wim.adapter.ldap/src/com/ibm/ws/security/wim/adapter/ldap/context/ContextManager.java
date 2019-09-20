@@ -88,10 +88,10 @@ public class ContextManager {
     private static final int DEFAULT_PREF_POOL_SIZE = 3;
 
     /** The default connect time limit - 1 minute. */
-    private static final long DEFAULT_CONNECT_TIMEOUT = 600000;
+    private static final long DEFAULT_CONNECT_TIMEOUT = 60000L;
 
-    /** The default read time limit - infinite. */
-    private static final long DEFAULT_READ_TIMEOUT = 0;
+    /** The default read time limit - 1 minute. */
+    private static final long DEFAULT_READ_TIMEOUT = 60000L;
 
     /** Key to use for accessing the active URL from the JNDI environment table. */
     private static final String ENVKEY_ACTIVE_URL = "_ACTIVE_URL_";
@@ -742,8 +742,9 @@ public class ContextManager {
                                     }
 
                                     // Log the URL being used.
-                                    if (tc.isDebugEnabled())
-                                        Tr.debug(tc, WIMMessageKey.CURRENT_LDAP_SERVER, WIMMessageHelper.generateMsgParms(getActiveURL()));
+                                    if (tc.isDebugEnabled()) {
+                                        Tr.debug(tc, WIMMessageKey.CURRENT_LDAP_SERVER, WIMMessageHelper.generateMsgParms(primaryURL));
+                                    }
 
                                     primaryOK = true;
                                     TimedDirContext tempCtx = ctx;
@@ -1516,7 +1517,6 @@ public class ContextManager {
     @Override
     public String toString() {
         StringBuffer sb = new StringBuffer();
-
         sb.append("ContextManager {");
         sb.append("iBindDN=").append(iBindDN);
         sb.append(", iBindPassword=").append(iBindPassword);

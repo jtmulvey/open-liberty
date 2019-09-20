@@ -30,13 +30,17 @@ import mpRestClient10.multiClientCdi.MultiClientCdiTestServlet;
 @RunWith(FATRunner.class)
 public class MultiClientCdiTest extends FATServletClient {
 
+    final static String SERVER_NAME = "mpRestClient10.multi.client.cdi";
+
     @ClassRule
     public static RepeatTests r = RepeatTests.withoutModification()
-        .andWith(new FeatureReplacementAction("mpRestClient-1.0", "mpRestClient-1.1").forServers("mpRestClient10.multi.client.cdi"));
+        .andWith(FATSuite.MP_REST_CLIENT_WITH_CONFIG("1.1", SERVER_NAME))
+        .andWith(FATSuite.MP_REST_CLIENT_WITH_CONFIG(FeatureReplacementAction.EE8_FEATURES(), "1.2", SERVER_NAME))
+        .andWith(FATSuite.MP_REST_CLIENT_WITH_CONFIG(FeatureReplacementAction.EE8_FEATURES(), "1.3", SERVER_NAME));
 
     private static final String appName = "multiClientCdiApp";
 
-    @Server("mpRestClient10.multi.client.cdi")
+    @Server(SERVER_NAME)
     @TestServlet(servlet = MultiClientCdiTestServlet.class, contextRoot = appName)
     public static LibertyServer server;
 

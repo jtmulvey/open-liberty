@@ -10,6 +10,9 @@
  *******************************************************************************/
 package com.ibm.ws.security.mp.jwt.tai;
 
+import java.nio.charset.Charset;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
@@ -21,6 +24,9 @@ import com.ibm.websphere.ras.annotation.Sensitive;
 import com.ibm.websphere.security.jwt.Claims;
 import com.ibm.websphere.security.jwt.JwtConsumer;
 import com.ibm.websphere.security.jwt.JwtToken;
+import com.ibm.ws.ffdc.annotation.FFDCIgnore;
+import com.ibm.ws.security.common.structures.BoundedHashMap;
+import com.ibm.ws.security.jwt.utils.JwtUtils;
 import com.ibm.ws.security.mp.jwt.TraceConstants;
 import com.ibm.ws.security.mp.jwt.error.MpJwtProcessingException;
 import com.ibm.ws.security.mp.jwt.impl.DefaultJsonWebTokenImpl;
@@ -29,10 +35,12 @@ public class TAIJwtUtils {
 
     private static TraceComponent tc = Tr.register(TAIJwtUtils.class, TraceConstants.TRACE_GROUP, TraceConstants.MESSAGE_BUNDLE);
     public static final String TYPE_JWT_TOKEN = "Json Web Token";
+    private static BoundedHashMap loggedOutJwts = new BoundedHashMap(5000);
 
     public TAIJwtUtils() {
     }
 
+    @FFDCIgnore(Exception.class)
     public JwtToken createJwt(@Sensitive String idToken, String jwtConfigId) throws MpJwtProcessingException {
         String methodName = "createJwt";
         if (tc.isDebugEnabled()) {
@@ -45,10 +53,38 @@ public class TAIJwtUtils {
             }
             return token;
         } catch (Exception e) {
-            String msg = Tr.formatMessage(tc, "ERROR_CREATING_JWT", new Object[] { jwtConfigId, e.getLocalizedMessage() });
-            Tr.error(tc, msg);
+            String msg = Tr.formatMessage(tc, "ERROR_CREATING_JWT", new Object[] { jwtConfigId, e.getLocalizedMessage() }); //CWWKS5524E
+            if (JwtUtils.isJwtSsoValidationExpiredTokenCodePath()) {
+                Tr.debug(tc, msg);
+            } else {
+                Tr.error(tc, msg);
+            }
             throw new MpJwtProcessingException(msg, e);
         }
+    }
+
+    public synchronized static boolean isJwtPreviouslyLoggedOut(String rawToken) {
+        boolean result = loggedOutJwts.get(getSha256Digest(rawToken)) != null;
+        return result;
+    }
+
+    public synchronized static void addLoggedOutJwtToList(String rawToken) {
+        // digest it to reduce size
+        String digestedJwt = getSha256Digest(rawToken);
+        if (digestedJwt != null) {
+            loggedOutJwts.put(digestedJwt, System.currentTimeMillis());
+        }
+    }
+
+    private static String getSha256Digest(String in) {
+        MessageDigest md = null;
+        try {
+            md = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            return null; // and emit ffdc
+        }
+        byte[] digest = md.digest(in.getBytes(Charset.forName("UTF-8")));
+        return new String(digest);
     }
 
     /**

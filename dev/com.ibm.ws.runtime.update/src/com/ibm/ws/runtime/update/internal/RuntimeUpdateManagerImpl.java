@@ -375,6 +375,9 @@ public class RuntimeUpdateManagerImpl implements RuntimeUpdateManager, Synchrono
             }
         }
 
+        if (tc.isDebugEnabled())
+            Tr.debug(tc, "About to begin quiesce of executor service threads.");
+
         // Notify the executor service that we are quiescing
         ThreadQuiesce tq = (ThreadQuiesce) executorService;
         if (tq.quiesceThreads()) {
@@ -384,10 +387,10 @@ public class RuntimeUpdateManagerImpl implements RuntimeUpdateManager, Synchrono
                 Tr.info(tc, "client.quiesce.end");
         } else {
 
-            // Dump threads to show what's still running. This should normally only be done when
-            // debug is enabled, but it's always on for now. Once we're sure we've flushed out most
-            // sources of quiesce failures we can move this into a debug block.
-            libertyProcess.createJavaDump(Collections.singleton("thread"));
+            if (tc.isDebugEnabled()) {
+                // If debug is enabled we will dump threads so that we can determine what was still running
+                libertyProcess.createJavaDump(Collections.singleton("thread"));
+            }
 
             int count = tq.getActiveThreads();
 

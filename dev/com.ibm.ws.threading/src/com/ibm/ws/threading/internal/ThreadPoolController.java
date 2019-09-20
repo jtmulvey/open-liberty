@@ -186,6 +186,13 @@ public final class ThreadPoolController {
     private int poolDecrement = poolIncrement;
 
     /**
+     * Corner case coverage - when maxThreads is set, and data below maxThreads has been pruned,
+     * this variable will tell us how much we should decrement to fit into the prior pattern of
+     * increment/decrement steps.
+     */
+    private int maxThreadsPoolDecrement = poolDecrement;
+
+    /**
      * The starting point for making poolSize adjustments. The controller defaults to changing
      * the poolSize by increments of number of cpus (hardware threads) available, but in some
      * special cases may need to use a different value.
@@ -240,6 +247,12 @@ public final class ThreadPoolController {
     private final static int highCpu;
 
     /**
+     * The controller will not grow the pool if the ratio of the current work rate (tput) to the
+     * current poolsize (threads) is below this threshold.
+     */
+    private final static double lowTputThreadsRatio;
+
+    /**
      * The historical set of throughput data maintained by the controller is subject to pruning
      * to remove datapoints which are judged likely no longer valid or useful for making pool
      * sizing decisions.
@@ -291,6 +304,11 @@ public final class ThreadPoolController {
     private final static double shrinkScoreFilterLevel;
 
     /**
+     * The grow/shrink scores must differ by this level to affect the poolSize
+     */
+    private final static double growShrinkDiffFilter;
+
+    /**
      * When a new throughput value is observed for an existing ThroughputDistribution, if
      * the new value is sufficiently different from the existing datapoint, the new value
      * is considered an 'outlier'. Receiving an outlier may be cause to reset the datapoint,
@@ -337,11 +355,17 @@ public final class ThreadPoolController {
         String tpcShrinkScorePruneLevel = getSystemProperty("tpcShrinkScorePruneLevel");
         shrinkScoreFilterLevel = (tpcShrinkScorePruneLevel == null) ? 0.50 : Double.parseDouble(tpcShrinkScorePruneLevel);
 
+        String tpcGrowShrinkDiffFilter = getSystemProperty("tpcGrowShrinkDiffFilter");
+        growShrinkDiffFilter = (tpcGrowShrinkDiffFilter == null) ? 0.25 : Double.parseDouble(tpcGrowShrinkDiffFilter);
+
         String tpcPoolIncrementMin = getSystemProperty("tpcPoolIncrementMin");
         poolIncrementMin = (tpcPoolIncrementMin == null) ? POOL_INCREMENT_MIN_DEFAULT : Integer.parseInt(tpcPoolIncrementMin);
 
         String tpcHighCpu = getSystemProperty("tpcHighCpu");
         highCpu = (tpcHighCpu == null) ? 90 : Integer.parseInt(tpcHighCpu);
+
+        String tpcLowTputThreadsRatio = getSystemProperty("tpcLowTputThreadsRatio");
+        lowTputThreadsRatio = (tpcLowTputThreadsRatio == null) ? 1.00 : Double.parseDouble(tpcLowTputThreadsRatio);
 
         String tpcDataAgePruneLevel = getSystemProperty("tpcDataAgePruneLevel");
         dataAgePruneLevel = (tpcDataAgePruneLevel == null) ? 5.0 : Double.parseDouble(tpcDataAgePruneLevel);
@@ -371,6 +395,12 @@ public final class ThreadPoolController {
     private double processCpuUtil = -1.0;
     private double systemCpuUtil = -1.0;
     private double cpuUtil = -1.0;
+
+    /**
+     * The controller uses the threadpool queue depth as an input to some of the
+     * decisions it makes.
+     */
+    private int queueDepth = 0;
 
     /**
      * Maximum intervals that we'll allow without changing the thread pool
@@ -851,33 +881,30 @@ public final class ThreadPoolController {
      * @param poolSize the current thread pool size
      * @param forecast the throughput forecast at the current thread pool size
      * @param throughput the throughput of the current interval
-     * @param queueDepth - the current depth of the work queue for the thread pool
      * @param cpuHigh - whether current cpu usage exceeds the 'high' threshold
+     * @param lowTput an indicator that tput is low relative to poolsize, and queue is empty
      *
      * @return the shrink score
      */
-    double getShrinkScore(int poolSize, double forecast, double throughput, int queueDepth, boolean cpuHigh) {
+    double getShrinkScore(int poolSize, double forecast, double throughput, boolean cpuHigh, boolean lowTput) {
         double shrinkScore = 0.0;
         double shrinkMagic = 0.0;
         boolean flippedCoin = false;
         int downwardCompareSpan = 0;
 
-        // Count the number of consecutive times we've seen an empty queue
-        if (queueDepth > 0) {
-            consecutiveQueueEmptyCount = 0;
-        } else if (lastAction != LastAction.SHRINK) { // 9/5/2012
-            consecutiveQueueEmptyCount++;
-        }
-
         if (poolSize >= coreThreads + poolDecrement) {
             // compareSpan is poolSize range used for throughput comparison
             downwardCompareSpan = Math.min(compareRange * poolDecrement, poolSize - coreThreads);
+
+            // if poolSize already close to coreThreads, we can skip some shrinkScore tweaks
+            boolean smallPool = ((poolSize - coreThreads) <= downwardCompareSpan);
 
             // average the probabilityGreaterThan results for all valid (not too old or out-of-range)
             // throughput data for compareRange smaller poolSizes ... discard invalid data found enroute
             Integer shrinkKey = threadStats.lowerKey(poolSize);
             Integer priorKey = Integer.valueOf(poolSize);
             int smallerPools = 0;
+            int pruneLimit = Math.max(coreThreads, hangBufferPoolSize);
             while (true) {
                 // stop if we run out of data
                 if (shrinkKey == null)
@@ -890,7 +917,7 @@ public final class ThreadPoolController {
                 // discard invalid data (old or out-of-range) found in comparison stats
                 ThroughputDistribution priorStats = threadStats.get(priorKey);
                 distance = poolSize - priorKey.intValue();
-                if (priorKey > hangBufferPoolSize) {
+                if (priorKey > pruneLimit) {
                     inHangBuffer = false;
                     if (pruneData(priorStats, forecast)) {
                         threadStats.remove(priorKey);
@@ -914,7 +941,7 @@ public final class ThreadPoolController {
             }
 
             // if we didn't find compareRange datapoints, flip a coin
-            if ((smallerPools < compareRange) && (priorKey > coreThreads)) {
+            if ((smallerPools < compareRange) && (!smallPool)) {
                 shrinkScore += (flipCoin()) ? 0.7 : 0.0;
                 smallerPools++;
                 flippedCoin = true;
@@ -934,8 +961,13 @@ public final class ThreadPoolController {
                 }
             }
 
+            // lean slightly toward shrinking if lowTput condition
+            if (shrinkScore < 0.5 && lowTput) {
+                shrinkScore = (flipCoin()) ? 0.5 : shrinkScore;
+            }
+
             // lean toward shrinking if cpuUtil is high
-            if ((shrinkScore < 0.5) && (poolSize > hangBufferPoolSize) && (priorKey > coreThreads)) {
+            if ((shrinkScore < 0.5) && (poolSize > hangBufferPoolSize) && (!smallPool)) {
                 if (cpuHigh) {
                     shrinkScore = (flipCoin()) ? 0.7 : shrinkScore;
                 } else {
@@ -974,12 +1006,16 @@ public final class ThreadPoolController {
                     shrinkScore = (flipCoin()) ? 0.0 : shrinkScore;
             }
             // Filter out small shrinkScores
-            if (shrinkScore < shrinkScoreFilterLevel) {
-                if (tc.isEventEnabled()) {
-                    Tr.event(tc, "shrinkScore pruning", (" shrinkScore " + shrinkScore + " pruned"));
-                }
-                shrinkScore = 0.0;
-            }
+            /**
+             * Nov 2018 - moved this to the growScore/shrinkScore comparison in evaluateInterval
+             * if (shrinkScore < shrinkScoreFilterLevel) {
+             * if (tc.isEventEnabled()) {
+             * Tr.event(tc, "shrinkScore pruning", (" shrinkScore " + shrinkScore + " pruned"));
+             * }
+             * shrinkScore = 0.0;
+             * }
+             */
+
         }
         return shrinkScore;
 
@@ -993,17 +1029,17 @@ public final class ThreadPoolController {
      * @param poolSize the current thread pool size
      * @param forecast the throughput forecast at the current thread pool size
      * @param throughput the throughput of the current interval
-     * @param queueDepth - the current depth of the work queue for the thread pool
      * @param cpuHigh - whether current cpu usage exceeds the 'high' threshold
+     * @param lowTput an indicator that tput is low relative to poolsize, and queue is empty
      *
      * @return the grow score
      */
-    double getGrowScore(int poolSize, double forecast, double throughput, int queueDepth, boolean cpuHigh) {
+    double getGrowScore(int poolSize, double forecast, double throughput, boolean cpuHigh, boolean lowTput) {
         double growScore = 0.0;
         boolean flippedCoin = false;
         int upwardCompareSpan = 0;
-        // Don't grow beyond max
-        if (poolSize + poolIncrement <= maxThreads) {
+        // Don't grow beyond max or in lowTput situation
+        if (poolSize + poolIncrement <= maxThreads && !lowTput) {
             // compareSpan is the poolSize range used for throughput comparison
             upwardCompareSpan = Math.min(compareRange * poolIncrement, maxThreads - poolSize);
             // average the probabilityGreaterThan results for all valid (not too old or out-of-range)
@@ -1097,13 +1133,16 @@ public final class ThreadPoolController {
                     }
                 }
             }
-            // Filter out small growScores
-            if (growScore < growScoreFilterLevel) {
-                if (tc.isEventEnabled()) {
-                    Tr.event(tc, "growScore pruning", (" growScore " + growScore + " pruned"));
-                }
-                growScore = 0.0;
-            }
+            /**
+             * Nov 2018 - moved this to the growScore/shrinkScore comparison in evaluateInterval
+             * // Filter out small growScores
+             * if (growScore < growScoreFilterLevel) {
+             * if (tc.isEventEnabled()) {
+             * Tr.event(tc, "growScore pruning", (" growScore " + growScore + " pruned"));
+             * }
+             * growScore = 0.0;
+             * }
+             */
         }
         return growScore;
     }
@@ -1115,10 +1154,12 @@ public final class ThreadPoolController {
      * @param poolSize the current pool size
      * @param calculatedAdjustment the adjustment calculated by grow and shrink scores
      * @param intervalCompleted the number of tasks completed in the current interval
+     * @param lowTput an indicator that tput is low relative to poolsize, and queue is empty
      *
      * @return the pool adjustment size to use
      */
-    int forceVariation(int poolSize, int calculatedAdjustment, long intervalCompleted) {
+    @Trivial
+    int forceVariation(int poolSize, int calculatedAdjustment, long intervalCompleted, boolean lowTput) {
         // 08/08/2012: Count intervals without change
         if (calculatedAdjustment == 0 && intervalCompleted != 0) {
             consecutiveNoAdjustment++;
@@ -1130,9 +1171,18 @@ public final class ThreadPoolController {
         if (consecutiveNoAdjustment >= MAX_INTERVALS_WITHOUT_CHANGE) {
             consecutiveNoAdjustment = 0;
             if (flipCoin() && poolSize + poolIncrement <= maxThreads) {
-                forcedAdjustment = poolIncrement;
+                // don't force an increase in lowTput situation
+                if (!lowTput) {
+                    forcedAdjustment = poolIncrement;
+                    if (tc.isEventEnabled()) {
+                        Tr.event(tc, "force variation", (" forced increase: " + forcedAdjustment));
+                    }
+                }
             } else if ((poolSize - poolDecrement) >= Math.max(coreThreads, hangBufferPoolSize)) {
                 forcedAdjustment = -poolDecrement;
+                if (tc.isEventEnabled()) {
+                    Tr.event(tc, "force variation", (" forced decrease: " + forcedAdjustment));
+                }
             }
         }
 
@@ -1202,7 +1252,6 @@ public final class ThreadPoolController {
             return "poolSize < coreThreads";
         }
 
-        controllerCycle++;
         long currentTime = System.currentTimeMillis();
         long completedWork = threadPool.getCompletedTaskCount();
 
@@ -1211,8 +1260,26 @@ public final class ThreadPoolController {
         long deltaCompleted = completedWork - previousCompleted;
         double throughput = 1000.0 * deltaCompleted / deltaTime;
         try {
-            int queueDepth = threadPool.getQueue().size();
-            boolean queueEmpty = (queueDepth == 0);
+            queueDepth = threadPool.getQueue().size();
+            boolean queueEmpty = (queueDepth <= 0);
+
+            // Count the number of consecutive times we've seen an empty queue
+            if (!queueEmpty) {
+                consecutiveQueueEmptyCount = 0;
+            } else if (lastAction != LastAction.SHRINK) { // 9/5/2012
+                consecutiveQueueEmptyCount++;
+            }
+
+            // update cpu utilization info
+            boolean cpuHigh = false;
+
+            processCpuUtil = CpuInfo.getJavaCpuUsage();
+            systemCpuUtil = CpuInfo.getSystemCpuUsage();
+            cpuUtil = Math.max(systemCpuUtil, processCpuUtil);
+
+            if (cpuUtil > highCpu) {
+                cpuHigh = true;
+            }
 
             // Handle pausing the task if the pool has been idle
             if (manageIdlePool(threadPool, deltaCompleted)) {
@@ -1239,6 +1306,7 @@ public final class ThreadPoolController {
                 return "poolSize != targetPoolSize";
             }
 
+            controllerCycle++;
             ThroughputDistribution currentStats = getThroughputDistribution(poolSize, true);
 
             // handleOutliers will mark this 'true' if it resets the distribution
@@ -1256,35 +1324,38 @@ public final class ThreadPoolController {
                 currentStats.addDataPoint(throughput, controllerCycle);
             }
 
-            boolean cpuHigh = false;
-
-            processCpuUtil = CpuInfo.getJavaCpuUsage();
-            systemCpuUtil = CpuInfo.getSystemCpuUsage();
-            cpuUtil = Math.max(systemCpuUtil, processCpuUtil);
-
-            if (cpuUtil > highCpu) {
-                cpuHigh = true;
+            boolean lowTput = false;
+            if (queueDepth == 0 && throughput < poolSize * lowTputThreadsRatio) {
+                lowTput = true;
+                if (tc.isEventEnabled()) {
+                    Tr.event(tc, "low tput flag set: throughput: " + throughput + ", poolSize: "
+                                 + poolSize + ", queueDepth: " + queueDepth,
+                             threadPool);
+                }
             }
 
             setPoolIncrementDecrement(poolSize);
 
             double forecast = currentStats.getMovingAverage();
-            double shrinkScore = getShrinkScore(poolSize, forecast, throughput, queueDepth, cpuHigh);
-            double growScore = getGrowScore(poolSize, forecast, throughput, queueDepth, cpuHigh);
+            double shrinkScore = getShrinkScore(poolSize, forecast, throughput, cpuHigh, lowTput);
+            double growScore = getGrowScore(poolSize, forecast, throughput, cpuHigh, lowTput);
 
+            // Adjust the poolsize only if one of the scores is both larger than the scoreFilterLevel
+            // and sufficiently larger than the other score. These conditions reduce poolsize fluctuation
+            // which might arise due to a weak or noisy signal from the historical throughput data.
             int poolAdjustment = 0;
-            if (growScore > shrinkScore) {
+            if (growScore >= growScoreFilterLevel && (growScore - growShrinkDiffFilter) > shrinkScore) {
                 poolAdjustment = poolIncrement;
-            } else if (shrinkScore > growScore) {
+            } else if (shrinkScore >= shrinkScoreFilterLevel && (shrinkScore - growShrinkDiffFilter) > growScore) {
                 poolAdjustment = -poolDecrement;
             }
 
             // Force some random variation into the pool size algorithm
-            poolAdjustment = forceVariation(poolSize, poolAdjustment, deltaCompleted);
+            poolAdjustment = forceVariation(poolSize, poolAdjustment, deltaCompleted, lowTput);
 
             // Format an event level trace point with the most useful data
             if (tc.isEventEnabled()) {
-                Tr.event(tc, "Interval data", toIntervalData(throughput, forecast, shrinkScore, growScore, queueDepth, poolSize, poolAdjustment));
+                Tr.event(tc, "Interval data", toIntervalData(throughput, forecast, shrinkScore, growScore, poolSize, poolAdjustment));
             }
 
             // Change the pool size and save the result, will check it at start of next control cycle
@@ -1302,7 +1373,7 @@ public final class ThreadPoolController {
      * Utility method used to format interval level statistic trace points.
      */
     @Trivial
-    private String toIntervalData(double throughput, double forecast, double shrinkScore, double growScore, int queueDepth, int poolSize, int poolAdjustment) {
+    private String toIntervalData(double throughput, double forecast, double shrinkScore, double growScore, int poolSize, int poolAdjustment) {
         final int RANGE = 25;
 
         StringBuilder sb = new StringBuilder();
@@ -1335,6 +1406,10 @@ public final class ThreadPoolController {
         sb.append(String.format(" poolIncrement = %2d", Integer.valueOf(poolIncrement)));
         sb.append(String.format(" poolDecrement = %2d", Integer.valueOf(poolDecrement)));
         sb.append(String.format(" compareRange = %2d", Integer.valueOf(compareRange)));
+
+        sb.append("\nConfig:");
+        sb.append(String.format(" coreThreads = %2d", Integer.valueOf(coreThreads)));
+        sb.append(String.format(" maxThreads = %2d", Integer.valueOf(maxThreads)));
 
         sb.append("\nStatistics:\n");
 
@@ -1431,9 +1506,7 @@ public final class ThreadPoolController {
 
             setPoolIncrementDecrement(poolSize);
             if (poolSize + poolIncrement <= maxThreads && poolSize < MAX_THREADS_TO_BREAK_HANG) {
-                poolSize += poolIncrement;
-                setPoolSize(poolSize);
-                targetPoolSize = poolSize;
+                targetPoolSize = adjustPoolSize(poolSize, poolIncrement);
                 // update the poolSize set to resolve the hang, plus a buffer amount
                 int targetSize = poolSize + (compareRange * poolIncrement);
                 if (hangBufferPoolSize < targetSize) {
@@ -1545,7 +1618,7 @@ public final class ThreadPoolController {
                 pruneSize = smallestPoolSize;
                 smallestPoolSize = nextPoolSize;
                 nextPoolSize = threadStats.higherKey(smallestPoolSize);
-                if (pruneSize > hangBufferPoolSize) {
+                if (pruneSize > hangBufferPoolSize && pruneSize > coreThreads) {
                     threadStats.remove(pruneSize);
                 }
             } else {
@@ -1672,10 +1745,14 @@ public final class ThreadPoolController {
 
         if (poolSize + poolIncrement > maxThreads) {
             if (poolSize == maxThreads) {
-                poolDecrement = (poolSize - threadStats.lowerKey(poolSize));
+                poolDecrement = maxThreadsPoolDecrement;
             } else {
                 poolIncrement = maxThreads - poolSize;
             }
+        }
+
+        if (poolSize + poolIncrement == maxThreads) {
+            maxThreadsPoolDecrement = poolIncrement;
         }
 
         /**
@@ -1743,6 +1820,7 @@ public final class ThreadPoolController {
 
         sb.append("\n growScoreFilterLevel: ").append(String.format("%2.2f", Double.valueOf(growScoreFilterLevel)));
         sb.append(" shrinkScoreFilterLevel: ").append(String.format("%2.2f", Double.valueOf(shrinkScoreFilterLevel)));
+        sb.append(" growShrinkDiffFilter: ").append(String.format("%2.2f", Double.valueOf(growShrinkDiffFilter)));
         sb.append(" dataAgePruneLevel: ").append(String.format("%2.2f", Double.valueOf(dataAgePruneLevel)));
         sb.append(" compareSpanPruneMultiplier: ").append(String.format("%3d", Integer.valueOf(compareSpanPruneMultiplier)));
 
@@ -1789,9 +1867,11 @@ public final class ThreadPoolController {
         out.println(INDENT + "targetPoolSize = " + targetPoolSize);
         out.println(INDENT + "consecutiveTargetPoolSizeWrong = " + consecutiveTargetPoolSizeWrong);
         out.println(INDENT + "highCpu = " + highCpu);
+        out.println(INDENT + "lowTputThreadsRatio = " + lowTputThreadsRatio);
         out.println(INDENT + "dataAgePruneLevel = " + dataAgePruneLevel);
         out.println(INDENT + "growScoreFilterLevel = " + growScoreFilterLevel);
         out.println(INDENT + "shrinkScoreFilterLevel = " + shrinkScoreFilterLevel);
+        out.println(INDENT + "growShrinkDiffFilter = " + growShrinkDiffFilter);
         out.println(INDENT + "resetDistroStdDevEwmaRatio = " + resetDistroStdDevEwmaRatio);
         out.println(INDENT + "resetDistroNewTputEwmaRatio = " + resetDistroNewTputEwmaRatio);
         out.println(INDENT + "resetDistroConsecutiveOutliers = " + resetDistroConsecutiveOutliers);
@@ -1807,6 +1887,7 @@ public final class ThreadPoolController {
         out.println(INDENT + "consecutiveQueueEmptyCount = " + consecutiveQueueEmptyCount);
         out.println(INDENT + "threadPool");
         out.println(INDENT + INDENT + "poolSize = " + threadPool.getPoolSize());
+        out.println(INDENT + INDENT + "queueDepth = " + queueDepth);
         out.println(INDENT + INDENT + "activeCount = " + threadPool.getActiveCount());
         out.println(INDENT + INDENT + "corePoolSize = " + threadPool.getCorePoolSize());
         out.println(INDENT + INDENT + "maxPoolSize = " + threadPool.getMaximumPoolSize());

@@ -15,10 +15,9 @@ src: \
 	fat/src,\
 	test-applications/baseclient/src,\
 	test-applications/bookstore/src,\
-    test-applications/cdiApp/src,\
-	test-applications/classSubResApp/src,\
 	test-applications/clientcontextinjection/src,\
 	test-applications/complexclient/src,\
+	test-applications/handleresponses/src,\
 	test-applications/ibmjson4j/src,\
 	test-applications/jackson/src,\
 	test-applications/jaxrs20clientcallback/src,\
@@ -30,11 +29,8 @@ src: \
 	test-applications/jaxrsclientssl/src,\
 	test-applications/jaxrsclientstandalone/src,\
 	test-applications/jaxrsclienttimeout/src,\
-	test-applications/jsonbapp/src,\
 	test-applications/jsonp/src,\
-	test-applications/patchapp/src,\
 	test-applications/pathparam/src,\
-	test-applications/providerPriorityApp/src,\
 	test-applications/thirdpartyjerseyclient/src
 
 fat.project: true
@@ -48,6 +44,8 @@ tested.features: \
 
 -buildpath: \
   com.ibm.websphere.javaee.annotation.1.2;version=latest,\
+  com.ibm.websphere.javaee.jaxb.2.2;version=latest,\
+  com.ibm.websphere.javaee.jaxws.2.2;version=latest,\
   com.ibm.websphere.javaee.cdi.1.2;version=latest,\
   com.ibm.websphere.javaee.jaxrs.2.0;version=latest,\
   com.ibm.websphere.javaee.jsonp.1.0,\

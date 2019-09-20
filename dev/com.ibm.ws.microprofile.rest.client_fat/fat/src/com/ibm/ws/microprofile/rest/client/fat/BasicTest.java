@@ -29,21 +29,25 @@ import mpRestClient10.basic.BasicClientTestServlet;
 @RunWith(FATRunner.class)
 public class BasicTest extends FATServletClient {
 
+    final static String SERVER_NAME = "mpRestClient10.basic";
+
     @ClassRule
     public static RepeatTests r = RepeatTests.withoutModification()
-        .andWith(new FeatureReplacementAction("mpRestClient-1.0", "mpRestClient-1.1").forServers("mpRestClient10.basic"));
+        .andWith(FATSuite.MP_REST_CLIENT("1.1", SERVER_NAME))
+        .andWith(FATSuite.MP_REST_CLIENT("1.2", SERVER_NAME))
+        .andWith(FATSuite.MP_REST_CLIENT("1.3", SERVER_NAME));
 
     private static final String appName = "basicClientApp";
 
     /*
-     * We need two servers to clearly distiguish that the "client" server
+     * We need two servers to clearly distinguish that the "client" server
      * only has the client features enabled - it includes mpRestClient-1.0
      * which includes the jaxrsClient-2.0 feature, but not the jaxrs-2.0
      * feature that contains server code. The client should be able to
      * work on its own - by splitting out the "server" server into it's
      * own server, we can verify this.
      */
-    @Server("mpRestClient10.basic")
+    @Server(SERVER_NAME)
     @TestServlet(servlet = BasicClientTestServlet.class, contextRoot = appName)
     public static LibertyServer server;
 
@@ -62,6 +66,6 @@ public class BasicTest extends FATServletClient {
     @AfterClass
     public static void afterClass() throws Exception {
         server.stopServer();
-        remoteAppServer.stopServer();
+        remoteAppServer.stopServer("CWWKO0801E");
     }
 }

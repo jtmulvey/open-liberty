@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2017 IBM Corporation and others.
+ * Copyright (c) 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,7 +17,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import org.apache.directory.api.ldap.model.entry.Entry;
+import java.util.List;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -29,8 +30,9 @@ import com.ibm.websphere.simplicity.config.wim.LdapCache;
 import com.ibm.websphere.simplicity.config.wim.LdapRegistry;
 import com.ibm.websphere.simplicity.config.wim.SearchResultsCache;
 import com.ibm.websphere.simplicity.log.Log;
-import com.ibm.ws.apacheds.EmbeddedApacheDS;
+import com.ibm.ws.com.unboundid.InMemoryLDAPServer;
 import com.ibm.ws.security.registry.test.UserRegistryServletConnection;
+import com.unboundid.ldap.sdk.Entry;
 
 import componenttest.custom.junit.runner.FATRunner;
 import componenttest.custom.junit.runner.Mode;
@@ -44,11 +46,12 @@ import componenttest.topology.utils.LDAPUtils;
  * LDAP search paging tests.
  */
 @RunWith(FATRunner.class)
-@Mode(TestMode.LITE)
+@Mode(TestMode.FULL)
 public class SearchPagingTest {
     private static LibertyServer libertyServer = LibertyServerFactory.getLibertyServer("com.ibm.ws.security.wim.adapter.ldap.fat.search.paging");
     private static final Class<?> c = SearchPagingTest.class;
     private static UserRegistryServletConnection servlet;
+    private static InMemoryLDAPServer ds;
 
     /**
      * Nearly empty server configuration. This should just contain the feature manager configuration with no
@@ -56,10 +59,9 @@ public class SearchPagingTest {
      */
     private static ServerConfiguration serverConfiguration = null;
 
-    private static EmbeddedApacheDS ldapServer = null;
     private static final String LDAP_BASE_ENTRY = "o=ibm,c=us";
 
-    private static final int MAX_ENTRIES = 100;
+    private static final int MAX_ENTRIES = 20;
 
     /**
      * Setup the test case.
@@ -77,21 +79,19 @@ public class SearchPagingTest {
      */
     @AfterClass
     public static void teardownClass() throws Exception {
-        if (libertyServer != null) {
-            try {
+        try {
+            if (libertyServer != null) {
                 libertyServer.stopServer();
-            } catch (Exception e) {
-                Log.error(c, "teardown", e, "Liberty server threw error while stopping. " + e.getMessage());
             }
-        }
-        if (ldapServer != null) {
+        } finally {
             try {
-                ldapServer.stopService();
+                if (ds != null) {
+                    ds.shutDown(true);
+                }
             } catch (Exception e) {
-                Log.error(c, "teardown", e, "LDAP server threw error while stopping. " + e.getMessage());
+                Log.error(c, "teardown", e, "LDAP server threw error while shutting down. " + e.getMessage());
             }
         }
-
         libertyServer.deleteFileFromLibertyInstallRoot("lib/features/internalfeatures/securitylibertyinternals-1.0.mf");
     }
 
@@ -125,9 +125,10 @@ public class SearchPagingTest {
         Log.info(c, "setUp", "Creating servlet connection the server");
         servlet = new UserRegistryServletConnection(libertyServer.getHostname(), libertyServer.getHttpDefaultPort());
 
-        servlet.getRealm();
-        Thread.sleep(5000);
-        servlet.getRealm();
+        if (servlet.getRealm() == null) {
+            Thread.sleep(5000);
+            servlet.getRealm();
+        }
 
         /*
          * The original server configuration has no registry or Federated Repository configuration.
@@ -145,18 +146,14 @@ public class SearchPagingTest {
     private static void setupLdapServer() throws Exception {
         final String methodName = "setupLdapServer";
         Log.info(c, methodName, "Starting LDAP server setup");
+        ds = new InMemoryLDAPServer(LDAP_BASE_ENTRY);
 
-        ldapServer = new EmbeddedApacheDS("testing");
-        ldapServer.addPartition("testing", LDAP_BASE_ENTRY);
-        ldapServer.startServer();
+        Entry entry = new Entry(LDAP_BASE_ENTRY);
+        entry.addAttribute("objectclass", "top");
+        entry.addAttribute("objectclass", "domain");
+        ds.add(entry);
 
-        /*
-         * Add the partition entries.
-         */
-        Entry entry = ldapServer.newEntry(LDAP_BASE_ENTRY);
-        entry.add("objectclass", "organization");
-        entry.add("o", "ibm");
-        ldapServer.add(entry);
+        Log.info(c, methodName, "Added " + LDAP_BASE_ENTRY + ". Adding " + MAX_ENTRIES + " users and groups.");
 
         /*
          * Create the users and groups.
@@ -164,21 +161,21 @@ public class SearchPagingTest {
         for (int idx = 0; idx < MAX_ENTRIES; idx++) {
             String userName = "user" + idx;
             String userDn = "uid=" + userName + "," + LDAP_BASE_ENTRY;
-            entry = ldapServer.newEntry(userDn);
-            entry.add("objectclass", "inetorgperson");
-            entry.add("uid", userName);
-            entry.add("sn", userName);
-            entry.add("cn", userName);
-            entry.add("userPassword", "password");
-            ldapServer.add(entry);
+            entry = new Entry(userDn);
+            entry.addAttribute("objectclass", "inetorgperson");
+            entry.addAttribute("uid", userName);
+            entry.addAttribute("sn", userName);
+            entry.addAttribute("cn", userName);
+            entry.addAttribute("userPassword", "password");
+            ds.add(entry);
 
             String groupName = "group" + idx;
             String groupDn = "cn=" + groupName + "," + LDAP_BASE_ENTRY;
-            entry = ldapServer.newEntry(groupDn);
-            entry.add("objectclass", "groupofnames");
-            entry.add("cn", groupName);
-            entry.add("member", userDn);
-            ldapServer.add(entry);
+            entry = new Entry(groupDn);
+            entry.addAttribute("objectclass", "groupofnames");
+            entry.addAttribute("cn", groupName);
+            entry.addAttribute("member", userDn);
+            ds.add(entry);
         }
 
         Log.info(c, methodName, "Finished LDAP server setup");
@@ -200,10 +197,10 @@ public class SearchPagingTest {
 
         ldap.setRealm("LDAPRealm");
         ldap.setHost("localhost");
-        ldap.setPort(String.valueOf(ldapServer.getLdapServer().getPort()));
+        ldap.setPort(String.valueOf(ds.getListenPort()));
         ldap.setBaseDN(LDAP_BASE_ENTRY);
-        ldap.setBindDN(EmbeddedApacheDS.getBindDN());
-        ldap.setBindPassword(EmbeddedApacheDS.getBindPassword());
+        ldap.setBindDN(InMemoryLDAPServer.getBindDN());
+        ldap.setBindPassword(InMemoryLDAPServer.getBindPassword());
         ldap.setLdapType("Custom");
         ldap.setLdapCache(new LdapCache(new AttributesCache(false, 0, 0, "0s"), new SearchResultsCache(false, 0, 0, "0s")));
 
@@ -232,14 +229,18 @@ public class SearchPagingTest {
          */
         LDAPFatUtils.resetMarksInLogs(libertyServer);
         assertEquals(MAX_ENTRIES, servlet.getUsers("*", 0).getList().size());
-        assertTrue(libertyServer.findStringsInLogsAndTrace("Search page: 1").isEmpty());
+        List<String> r = libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 1");
+        Log.info(c, "searchWithNoPaging", "Result " + r);
+        assertTrue("Should not find, Search page: 1, in the logs, found: " + r, r.isEmpty());
 
         /*
          * Check a group search.
          */
         LDAPFatUtils.resetMarksInLogs(libertyServer);
         assertEquals(MAX_ENTRIES, servlet.getGroups("*", 0).getList().size());
-        assertTrue(libertyServer.findStringsInLogsAndTrace("Search page: 1").isEmpty());
+        r = libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 1");
+        Log.info(c, "searchWithNoPaging", "Result " + r);
+        assertTrue("Should not find, Search page: 1, in the logs, found: " + r, r.isEmpty());
     }
 
     /**
@@ -257,31 +258,31 @@ public class SearchPagingTest {
          */
         LDAPFatUtils.resetMarksInLogs(libertyServer);
         assertEquals(MAX_ENTRIES, servlet.getUsers("*", 0).getList().size());
-        assertFalse("Didn't find search for page 1", libertyServer.findStringsInLogsAndTrace("Search page: 1").isEmpty());
-        assertFalse("Didn't find search for page 2", libertyServer.findStringsInLogsAndTrace("Search page: 2").isEmpty());
-        assertFalse("Didn't find search for page 3", libertyServer.findStringsInLogsAndTrace("Search page: 3").isEmpty());
-        assertFalse("Didn't find search for page 4", libertyServer.findStringsInLogsAndTrace("Search page: 4").isEmpty());
-        assertFalse("Didn't find search for page 5", libertyServer.findStringsInLogsAndTrace("Search page: 5").isEmpty());
-        assertFalse("Didn't find search for page 6", libertyServer.findStringsInLogsAndTrace("Search page: 6").isEmpty());
-        assertFalse("Didn't find search for page 7", libertyServer.findStringsInLogsAndTrace("Search page: 7").isEmpty());
-        assertFalse("Didn't find search for page 8", libertyServer.findStringsInLogsAndTrace("Search page: 8").isEmpty());
-        assertFalse("Didn't find search for page 9", libertyServer.findStringsInLogsAndTrace("Search page: 9").isEmpty());
-        assertFalse("Didn't find search for page 10", libertyServer.findStringsInLogsAndTrace("Search page: 10").isEmpty());
+        assertFalse("Didn't find search for page 1", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 1").isEmpty());
+        assertFalse("Didn't find search for page 2", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 2").isEmpty());
+        assertFalse("Didn't find search for page 3", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 3").isEmpty());
+        assertFalse("Didn't find search for page 4", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 4").isEmpty());
+        assertFalse("Didn't find search for page 5", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 5").isEmpty());
+        assertFalse("Didn't find search for page 6", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 6").isEmpty());
+        assertFalse("Didn't find search for page 7", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 7").isEmpty());
+        assertFalse("Didn't find search for page 8", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 8").isEmpty());
+        assertFalse("Didn't find search for page 9", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 9").isEmpty());
+        assertFalse("Didn't find search for page 10", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 10").isEmpty());
 
         /*
          * Check a group search.
          */
         LDAPFatUtils.resetMarksInLogs(libertyServer);
         assertEquals(MAX_ENTRIES, servlet.getGroups("*", 0).getList().size());
-        assertFalse("Didn't find search for page 1", libertyServer.findStringsInLogsAndTrace("Search page: 1").isEmpty());
-        assertFalse("Didn't find search for page 2", libertyServer.findStringsInLogsAndTrace("Search page: 2").isEmpty());
-        assertFalse("Didn't find search for page 3", libertyServer.findStringsInLogsAndTrace("Search page: 3").isEmpty());
-        assertFalse("Didn't find search for page 4", libertyServer.findStringsInLogsAndTrace("Search page: 4").isEmpty());
-        assertFalse("Didn't find search for page 5", libertyServer.findStringsInLogsAndTrace("Search page: 5").isEmpty());
-        assertFalse("Didn't find search for page 6", libertyServer.findStringsInLogsAndTrace("Search page: 6").isEmpty());
-        assertFalse("Didn't find search for page 7", libertyServer.findStringsInLogsAndTrace("Search page: 7").isEmpty());
-        assertFalse("Didn't find search for page 8", libertyServer.findStringsInLogsAndTrace("Search page: 8").isEmpty());
-        assertFalse("Didn't find search for page 9", libertyServer.findStringsInLogsAndTrace("Search page: 9").isEmpty());
-        assertFalse("Didn't find search for page 10", libertyServer.findStringsInLogsAndTrace("Search page: 10").isEmpty());
+        assertFalse("Didn't find search for page 1", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 1").isEmpty());
+        assertFalse("Didn't find search for page 2", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 2").isEmpty());
+        assertFalse("Didn't find search for page 3", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 3").isEmpty());
+        assertFalse("Didn't find search for page 4", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 4").isEmpty());
+        assertFalse("Didn't find search for page 5", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 5").isEmpty());
+        assertFalse("Didn't find search for page 6", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 6").isEmpty());
+        assertFalse("Didn't find search for page 7", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 7").isEmpty());
+        assertFalse("Didn't find search for page 8", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 8").isEmpty());
+        assertFalse("Didn't find search for page 9", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 9").isEmpty());
+        assertFalse("Didn't find search for page 10", libertyServer.findStringsInLogsAndTraceUsingMark("Search page: 10").isEmpty());
     }
 }

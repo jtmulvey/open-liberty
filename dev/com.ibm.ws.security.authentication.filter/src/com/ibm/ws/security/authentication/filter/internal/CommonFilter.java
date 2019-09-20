@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2014, 2018 IBM Corporation and others.
+ * Copyright (c) 2014, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -8,6 +8,7 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
+
 package com.ibm.ws.security.authentication.filter.internal;
 
 import java.util.Iterator;
@@ -29,18 +30,18 @@ import com.ibm.websphere.ras.TraceComponent;
  * - Note: we do not support symbol and word in the same configuration.
  * - the input required element (generally an HTTP header name, but request-url & remote-address are special)
  * - the comparison value (generally a string, but IP address ranges are allowed)
- * 
+ *
  * Here are a few examples:
  * remote-address==192.168.*.*
  * remote-address==192.168.[7-13].*
  * request-url!=noSPNEGO;remote-address==192.168.*.*
  * user-agent%=IE6
- * 
+ *
  * Often the value being compared is just a string. However, notice that some examples using IP addresses with
  * wildcarding. These are referred to as the ValueAddressRange type. Possible values are an exact IP address,
  * an IP address ending in wildcards (e.g., '*') or a range specified with []. Ranges are then compared against
  * the input to determine if the comparison holds.
- * 
+ *
  * Conditions are represented as an object of type ICondition. The possible conditions are:
  * %= ContainsCondition - the input contains the comparison value
  * > GreaterCondition - the input is greater than the comparison value
@@ -48,12 +49,12 @@ import com.ibm.websphere.ras.TraceComponent;
  * != NotContainsCondition - the input does not contain the comparison value
  * ^= OrCondition - the input contains one of the comparison values
  * == EqualCondition - the input is equal to the comparison value
- * 
+ *
  * Values are of type IValue, thus conditions compare IValues. Inputs are converted to IValues. The types are
  * ValueString
  * ValueIPAddress
  * ValueAddressRange
- * 
+ *
  * ValueStrings are compared using the usual string comparison functions in java. IP Address range comparisons
  * are interpreted as follows:
  * %=
@@ -62,7 +63,7 @@ import com.ibm.websphere.ras.TraceComponent;
  * != the input IP address is not *in* specified IP address range (notice we don't mean not equal)
  * ^= the input IP address is in one of the specified IP address ranges
  * == the input IP address is *in* the specified IP address range (notice we don't mean equal)
- * 
+ *
  */
 
 public class CommonFilter {
@@ -90,7 +91,7 @@ public class CommonFilter {
     /**
      * Pass the filter string so the implementation can read any of the
      * properties
-     * 
+     *
      * @param filterString -
      *            set of rules to be used by the filter
      * @return true if no problem occured during parsing of filterString false
@@ -140,7 +141,7 @@ public class CommonFilter {
             // So, I have the throw a runtimeexception if I can't parse the condition
             try {
                 ICondition condition = makeConditionWithSymbolOperand(key, operand, valueString,
-                                                                      ipAddress);
+                                                                      ipAddress, false);
                 filterCondition.add(condition);
             } catch (FilterException e) {
                 throw new RuntimeException(e);
@@ -151,24 +152,49 @@ public class CommonFilter {
     }
 
     protected void initialize(AuthFilterConfig filterConfig) {
-        buildICondition(filterConfig.getWebApps(), AuthFilterConfig.KEY_WEB_APP, AuthFilterConfig.KEY_NAME, false);
-        buildICondition(filterConfig.getRequestUrls(), REQUEST_URL, AuthFilterConfig.KEY_URL_PATTERN, false);
-        buildICondition(filterConfig.getRemoteAddresses(), REMOTE_ADDRESS, AuthFilterConfig.KEY_IP, true);
-        buildICondition(filterConfig.getHosts(), KEY_HOST, AuthFilterConfig.KEY_NAME, false);
-        buildICondition(filterConfig.getUserAgents(), KEY_USER_AGENT, AuthFilterConfig.KEY_AGENT, false);
+        buildICondition(filterConfig.getWebApps(), AuthFilterConfig.KEY_WEB_APP, AuthFilterConfig.KEY_NAME, null, false);
+        buildICondition(filterConfig.getRequestUrls(), REQUEST_URL, AuthFilterConfig.KEY_URL_PATTERN, null, false);
+        buildICondition(filterConfig.getRemoteAddresses(), REMOTE_ADDRESS, AuthFilterConfig.KEY_IP, null, true);
+        buildICondition(filterConfig.getHosts(), KEY_HOST, AuthFilterConfig.KEY_NAME, null, false);
+        buildICondition(filterConfig.getUserAgents(), KEY_USER_AGENT, AuthFilterConfig.KEY_AGENT, null, false);
+        buildICondition(filterConfig.getCookies(), AuthFilterConfig.KEY_COOKIE, AuthFilterConfig.KEY_NAME, null, false);
+        buildICondition(filterConfig.getRequestHeaders(), AuthFilterConfig.KEY_REQUEST_HEADER, AuthFilterConfig.KEY_NAME, AuthFilterConfig.KEY_VALUE, false, true);
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
             Tr.debug(tc, "combine filter conditions: " + filterCondition.toString());
         }
     }
 
-    protected void buildICondition(List<Properties> filterElements, String elementName, String attrName, boolean ipAddress) {
+    protected void buildICondition(List<Properties> filterElements, String elementName, String attrName, String attrValue, boolean ipAddress) {
+        buildICondition(filterElements, elementName, attrName, attrValue, ipAddress, false);
+    }
+
+    protected void buildICondition(List<Properties> filterElements, String elementName, String attrName, String attrValue, boolean ipAddress, boolean optionalAttrValue) {
         if (filterElements != null && !filterElements.isEmpty()) {
+            boolean noAttrValue = false;
             Iterator<Properties> iter = filterElements.iterator();
             while (iter.hasNext()) {
                 try {
+                    String key = null;
+                    String value = null;
+
                     Properties props = iter.next();
-                    ICondition condition = makeConditionWithMatchType(elementName, props.getProperty(AuthFilterConfig.KEY_MATCH_TYPE),
-                                                                      props.getProperty(attrName), ipAddress);
+                    if (attrValue != null) {
+                        key = props.getProperty(attrName);
+                        value = props.getProperty(attrValue);
+                    } else {
+                        key = elementName;
+                        value = props.getProperty(attrName);
+                    }
+
+                    if (optionalAttrValue && value == null) {
+                        noAttrValue = true;
+                        value = key;
+                    } else {
+                        noAttrValue = false;
+                    }
+
+                    ICondition condition = makeConditionWithMatchType(key, props.getProperty(AuthFilterConfig.KEY_MATCH_TYPE), value, ipAddress, noAttrValue);
+
                     filterCondition.add(condition);
                 } catch (FilterException e) {
                     if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
@@ -183,31 +209,31 @@ public class CommonFilter {
      * Given the three parts (key, operand, value) make a proper condition object. Notice that I need to know
      * if the value should be interpreted as an IP address. There some service that use symbol and others use word
      * for operand/matchType.
-     * 
+     *
      * Basically just look at the operator string and create the correct condition. Only the OR involved any
      * complicated processing since there are multiple values for OR.
-     * 
+     *
      * Note: the old configuration use symbols ==, !=, ^=, %=, <, >
      * On Liberty: only OAUTH support the symbols configuration but currently do not call this code
      */
     private ICondition makeConditionWithSymbolOperand(String key, String operand, String valueString,
-                                                      boolean ipAddress) throws FilterException {
+                                                      boolean ipAddress, boolean noAttrValue) throws FilterException {
         if (operand.equals("==")) {
-            return new EqualCondition(key, makeValue(valueString, ipAddress), operand);
+            return new EqualCondition(key, makeValue(valueString, ipAddress), operand, noAttrValue);
         } else if (operand.equals("!=")) {
-            NotContainsCondition cond = new NotContainsCondition(key, operand);
+            NotContainsCondition cond = new NotContainsCondition(key, operand, noAttrValue);
             processOrValues(valueString, ipAddress, cond);
             return cond;
         } else if (operand.equals("^=")) {
-            OrCondition cond = new OrCondition(key, operand);
+            OrCondition cond = new OrCondition(key, operand, noAttrValue);
             processOrValues(valueString, ipAddress, cond);
             return cond;
         } else if (operand.equals("%=")) {
-            return new ContainsCondition(key, makeValue(valueString, ipAddress), operand);
+            return new ContainsCondition(key, makeValue(valueString, ipAddress), operand, noAttrValue);
         } else if (operand.equals("<")) {
-            return new LessCondition(key, makeValue(valueString, ipAddress), operand);
+            return new LessCondition(key, makeValue(valueString, ipAddress), operand, noAttrValue);
         } else if (operand.equals(">")) {
-            return new GreaterCondition(key, makeValue(valueString, ipAddress), operand);
+            return new GreaterCondition(key, makeValue(valueString, ipAddress), operand, noAttrValue);
         } else {
             Tr.error(tc, "AUTH_FILTER_MALFORMED_SYMBOL_MATCH_TYPE", new Object[] { operand });
             throw new FilterException(TraceNLS.getFormattedMessage(this.getClass(),
@@ -222,28 +248,28 @@ public class CommonFilter {
      * Given the three parts (key, operand, value) make a proper condition object. Notice that I need to know
      * if the value should be interpreted as an IP address. There some service that use symbol and others use word
      * for operand/matchType.
-     * 
+     *
      * Basically just look at the operator string and create the correct condition. Only the OR involved any
      * complicated processing since there are multiple values for OR.
-     * 
+     *
      * Note: the new configuration use words such as equals, notContain, contains, greaterThan or lessThan
      */
     private ICondition makeConditionWithMatchType(String key, String operand, String valueString,
-                                                  boolean ipAddress) throws FilterException {
+                                                  boolean ipAddress, boolean noAttrValue) throws FilterException {
         if (operand.equalsIgnoreCase(AuthFilterConfig.MATCH_TYPE_EQUALS)) {
-            return new EqualCondition(key, makeValue(valueString, ipAddress), operand);
+            return new EqualCondition(key, makeValue(valueString, ipAddress), operand, noAttrValue);
         } else if (operand.equalsIgnoreCase(AuthFilterConfig.MATCH_TYPE_NOT_CONTAIN)) {
-            NotContainsCondition cond = new NotContainsCondition(key, operand);
+            NotContainsCondition cond = new NotContainsCondition(key, operand, noAttrValue);
             processOrValues(valueString, ipAddress, cond);
             return cond;
         } else if (operand.equalsIgnoreCase(AuthFilterConfig.MATCH_TYPE_CONTAINS)) {
-            OrCondition cond = new OrCondition(key, operand);
+            OrCondition cond = new OrCondition(key, operand, noAttrValue);
             processOrValues(valueString, ipAddress, cond);
             return cond;
         } else if (operand.equalsIgnoreCase(AuthFilterConfig.MATCH_TYPE_LESS_THAN)) {
-            return new LessCondition(key, makeValue(valueString, ipAddress), operand);
+            return new LessCondition(key, makeValue(valueString, ipAddress), operand, noAttrValue);
         } else if (operand.equalsIgnoreCase(AuthFilterConfig.MATCH_TYPE_GREATER_THAN)) {
-            return new GreaterCondition(key, makeValue(valueString, ipAddress), operand);
+            return new GreaterCondition(key, makeValue(valueString, ipAddress), operand, noAttrValue);
         } else {
             Tr.error(tc, "AUTH_FILTER_MALFORMED_WORD_MATCH_TYPE", new Object[] { operand });
             throw new FilterException(TraceNLS.getFormattedMessage(this.getClass(),
@@ -272,14 +298,13 @@ public class CommonFilter {
     /**
      * Helper to make the value for the condition. It's either a IP address (ValueAddressRange) or a
      * string (ValueString).
-     * 
+     *
      * @param value
      * @param ipAddress
      * @return
      * @throws FilterException
      */
-    private IValue makeValue(String value, boolean ipAddress)
-                    throws FilterException {
+    private IValue makeValue(String value, boolean ipAddress) throws FilterException {
         if (ipAddress)
             return new ValueAddressRange(value);
         return new ValueString(value);
@@ -288,7 +313,7 @@ public class CommonFilter {
     /**
      * Indicates if TAI should intercept request, based on pre-defined rules. Basically just execute
      * the conditions created earlier.
-     * 
+     *
      * @param IRequestInfo
      * @return true if the request passes the filter criteria otherwise false
      */
@@ -306,15 +331,15 @@ public class CommonFilter {
         Iterator<ICondition> iter = filterCondition.iterator();
         while (iter.hasNext()) {
             ICondition cond = iter.next();
-            HTTPheader = req.getHeader(cond.getKey());
+            String key = cond.getKey();
+
+            // Start with request header attribute name
+            HTTPheader = req.getHeader(key);
 
             boolean ipAddress = false;
 
-            // First, if the header argument is a null, then extract either the
-            // "remote-address" or the "request-url" values from the request
-            // object if the key uses either of these "tags"
+            // The header argument is a null, so go through other tags.
             if (HTTPheader == null) {
-                String key = cond.getKey();
                 if (key.equals(REMOTE_ADDRESS)) {
                     HTTPheader = req.getRemoteAddr();
                     ipAddress = true;
@@ -322,27 +347,44 @@ public class CommonFilter {
                     HTTPheader = req.getRequestURL();
                 } else if (key.equals(AuthFilterConfig.KEY_WEB_APP) || key.equals(APPLICATION_NAMES)) {
                     HTTPheader = req.getApplicationName();
+                } else if (key.equals(AuthFilterConfig.KEY_COOKIE)) {
+                    HTTPheader = req.getCookieName(key);
                 } else if (cond instanceof NotContainsCondition) {
                     continue;
                 } else {
                     if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-                        Tr.debug(tc, "No HTTPheader found, and no 'remote-address' or 'request-url' or 'requestApp' rule used - do not Intercept.");
+                        Tr.debug(tc, "No HTTPheader found, and no remote-address, request-url, webApp, applicationNames, cookie, or requestHeader rule used - do not Intercept.");
                     }
                     return false; // if no header found, the condition fails
                 }
             }
-
+            if (HTTPheader == null) {
+                if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                    Tr.debug(tc, "No HTTPheader found - do not Intercept.");
+                }
+                return false; // if no header found, the condition fails
+            }
+            boolean noAttrValue = cond.isNoAttrValue();
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-                Tr.debug(tc, "Checking condition {0} {1}.", new Object[] { cond, HTTPheader });
+                Tr.debug(tc, "Checking condition {0} {1} {2}.",
+                         new Object[] { key, cond, (noAttrValue == true ? "name " + key : "value " + HTTPheader) });
             }
             try {
                 IValue compareValue;
-                if (ipAddress) {
-                    compareValue = new ValueIPAddress(HTTPheader);
-                } else {
-                    compareValue = new ValueString(HTTPheader);
+                String cv = HTTPheader;
+
+                //If condition does not have the attribute value, we will use the attribute name.
+                if (noAttrValue) {
+                    cv = key;
                 }
+                if (ipAddress) {
+                    compareValue = new ValueIPAddress(cv);
+                } else {
+                    compareValue = new ValueString(cv);
+                }
+
                 answer = cond.checkCondition(compareValue);
+
                 if (!answer) {
                     break;
                 }
@@ -357,9 +399,9 @@ public class CommonFilter {
     /**
      * Optionally use this method to indicate that all requests to this filter
      * will be processed.
-     * 
+     *
      * @param -
-     *        true will cause all calls to isAccepted() to return true
+     *            true will cause all calls to isAccepted() to return true
      */
     public void setProcessAll(boolean b) {
         processAll = b;

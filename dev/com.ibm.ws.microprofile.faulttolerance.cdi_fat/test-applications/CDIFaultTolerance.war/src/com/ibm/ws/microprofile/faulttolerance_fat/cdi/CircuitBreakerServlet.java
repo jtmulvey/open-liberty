@@ -1,6 +1,8 @@
 package com.ibm.ws.microprofile.faulttolerance_fat.cdi;
 
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -17,8 +19,10 @@ import static org.junit.Assert.fail;
  *******************************************************************************/
 
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import javax.inject.Inject;
 import javax.servlet.ServletException;
@@ -29,7 +33,9 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.microprofile.faulttolerance.exceptions.CircuitBreakerOpenException;
 import org.eclipse.microprofile.faulttolerance.exceptions.TimeoutException;
+import org.junit.Test;
 
+import com.ibm.ws.microprofile.faulttolerance_fat.cdi.beans.AsyncRunnerBean;
 import com.ibm.ws.microprofile.faulttolerance_fat.cdi.beans.CircuitBreakerBean;
 import com.ibm.ws.microprofile.faulttolerance_fat.cdi.beans.CircuitBreakerBean2;
 import com.ibm.ws.microprofile.faulttolerance_fat.util.ConnectException;
@@ -49,14 +55,17 @@ public class CircuitBreakerServlet extends FATServlet {
     @Inject
     CircuitBreakerBean2 classScopeConfigBean;
 
+    @Inject
+    AsyncRunnerBean runner;
+
     /**
      * Test the operation of the requestVolumeThreshold on a CircuitBreaker configured on a synchronous service
      * that is configured with a Timeout.
      *
      * @throws InterruptedException
-     * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse response)
      */
-    public void testCBFailureThresholdWithTimeout(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException, InterruptedException {
+    @Test
+    public void testCBFailureThresholdWithTimeout() throws InterruptedException {
 
         // FaultTolerance object with circuit breaker, should fail 3 times
         for (int i = 0; i < 3; i++) {
@@ -89,10 +98,9 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws InterruptedException
      * @throws ConnectException
-     * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse response)
      */
-    public void testCBFailureThresholdWithException(HttpServletRequest request,
-                                                    HttpServletResponse response) throws ServletException, IOException, InterruptedException, ConnectException {
+    @Test
+    public void testCBFailureThresholdWithException() throws InterruptedException, ConnectException {
 
         // FaultTolerance object with circuit breaker, should fail 3 times
         for (int i = 0; i < 3; i++) {
@@ -127,6 +135,7 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws Exception
      */
+    @Test
     public void testCBAsync() throws Exception {
         for (int i = 0; i < 3; i++) {
             try {
@@ -140,10 +149,13 @@ public class CircuitBreakerServlet extends FATServlet {
         // Circuit should now be open
 
         try {
-            bean.serviceC();
+            bean.serviceC().get();
             fail("Exception not thrown");
         } catch (CircuitBreakerOpenException e) {
-            // Expected
+            // Expected on 1.1
+        } catch (ExecutionException e) {
+            // Expected on 2.0
+            assertThat(e.getCause(), instanceOf(CircuitBreakerOpenException.class));
         }
     }
 
@@ -152,6 +164,7 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws Exception
      */
+    @Test
     public void testCBAsyncFallback() throws Exception {
         for (int i = 0; i < 3; i++) {
             assertThat(bean.serviceD().get(), is("serviceDFallback"));
@@ -176,6 +189,7 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws Exception
      */
+    @Test
     public void testCBSyncFallback() throws Exception {
         String result = null;
         for (int i = 0; i < 3; i++) {
@@ -220,6 +234,7 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws Exception
      */
+    @Test
     public void testCBSyncRetryCircuitOpens() throws Exception {
         String result = null;
 
@@ -245,6 +260,7 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws Exception
      */
+    @Test
     public void testCBSyncRetryCircuitClosed() throws Exception {
         String result = null;
 
@@ -269,6 +285,7 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws Exception
      */
+    @Test
     public void testCBAsyncRetryCircuitOpens() throws Exception {
         Future<String> future = null;
         try {
@@ -300,6 +317,7 @@ public class CircuitBreakerServlet extends FATServlet {
      *
      * @throws Exception
      */
+    @Test
     public void testCBAsyncRetryCircuitClosed() throws Exception {
         Future<String> future = null;
         try {
@@ -331,6 +349,7 @@ public class CircuitBreakerServlet extends FATServlet {
      * @throws InterruptedException
      * @throws ConnectException
      */
+    @Test
     public void testCBFailureThresholdWithRoll() throws InterruptedException, ConnectException {
 
         // FaultTolerance object with circuit breaker, should fail 3 times
@@ -372,6 +391,7 @@ public class CircuitBreakerServlet extends FATServlet {
      * @throws ConnectException
      * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse response)
      */
+    @Test
     public void testCBFailureThresholdConfig(HttpServletRequest request,
                                              HttpServletResponse response) throws ServletException, IOException, InterruptedException, ConnectException {
 
@@ -404,6 +424,7 @@ public class CircuitBreakerServlet extends FATServlet {
      * @throws ConnectException
      * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse response)
      */
+    @Test
     public void testCBFailureThresholdClassScopeConfig(HttpServletRequest request,
                                                        HttpServletResponse response) throws ServletException, IOException, InterruptedException, ConnectException {
 
@@ -434,6 +455,7 @@ public class CircuitBreakerServlet extends FATServlet {
      * @throws ConnectException
      * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse response)
      */
+    @Test
     public void testCBDelayConfig(HttpServletRequest request,
                                   HttpServletResponse response) throws ServletException, IOException, InterruptedException, ConnectException {
 
@@ -465,25 +487,48 @@ public class CircuitBreakerServlet extends FATServlet {
         }
     }
 
-    /**
-     * This test should only pass if MP_Fault_Tolerance_NonFallback_Enabled is set to false
-     */
-    public void testCBDisabled(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        // FaultTolerance object with circuit breaker, should fail 3 times
-        for (int i = 0; i < 3; i++) {
+    @Test
+    public void testCBRestrictsWhenHalfOpen() throws Exception {
+        // Open the breaker
+        for (int i = 0; i < 2; i++) {
             try {
-                bean.serviceB();
-                throw new AssertionError("ConnectException not caught");
+                bean.serviceM(false, null, null);
             } catch (ConnectException e) {
-                if (!e.getMessage().equals("ConnectException: serviceB exception: " + (i + 1))) {
-                    throw new AssertionError("ConnectException bad message: " + e.getMessage());
-                }
+                // Expected
             }
         }
 
-        // If circuit breaker is enabled, the next method should throw a CircuitBreakerOpenException
-        // If circuit breaker is disabled, it should succeed.
-        bean.serviceB();
+        Thread.sleep(TestConstants.TIMEOUT + 100); // Wait for breaker to half open
+
+        // Start a task which runs until we count down the latch
+        CountDownLatch hasStartedLatch = new CountDownLatch(1);
+        CountDownLatch mayFinishLatch = new CountDownLatch(1);
+        try {
+            Future<?> future = runner.call(() -> bean.serviceM(true, hasStartedLatch, mayFinishLatch));
+            hasStartedLatch.await(TestConstants.TEST_TIMEOUT, TimeUnit.MILLISECONDS);
+
+            // Running another task should result in a CircuitBreakerOpenException
+            try {
+                bean.serviceM(true, null, null);
+                fail("CircuitBreakerOpenException not thrown");
+            } catch (CircuitBreakerOpenException ex) {
+                // Expected
+            }
+
+            // Long running task still should not have finished at this point
+            assertFalse("Long running task completed too soon", future.isDone());
+
+            // Allow long running task to finish
+            mayFinishLatch.countDown();
+            future.get(TestConstants.TEST_TIMEOUT, TimeUnit.MILLISECONDS);
+
+            // Now we should be able to run another task
+            bean.serviceM(true, null, null);
+        } finally {
+            // Ensure we always clean up the long running task in case of failure
+            mayFinishLatch.countDown();
+        }
+
     }
 
 }

@@ -8,6 +8,7 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
+
 package com.ibm.ws.security.authentication.filter.internal;
 
 public interface ICondition {
@@ -21,6 +22,11 @@ public interface ICondition {
      * request.
      */
     public boolean checkCondition(IValue test) throws FilterException;
+
+    /*
+     * We allow requestHeader attribute name without value, so we will check the attribute name instead of value.
+     */
+    public boolean isNoAttrValue();
 
     @Override
     public String toString();

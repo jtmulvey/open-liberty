@@ -12,6 +12,7 @@ package com.ibm.ws.microprofile.config13.sources;
 
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.osgi.framework.BundleContext;
@@ -34,21 +35,35 @@ public class ServerXMLVariableConfigSource extends InternalConfigSource implemen
     private BundleContext bundleContext;
 
     public ServerXMLVariableConfigSource() {
-        super(Config13Constants.SERVER_XML_VARIABLE_ORDINAL, Tr.formatMessage(tc, "server.xml.variable.config.source"));
+        super(Config13Constants.SERVER_XML_VARIABLE_ORDINAL, Tr.formatMessage(tc, "server.xml.variables.config.source"));
     }
 
     /** {@inheritDoc} */
     @Override
     public Map<String, String> getProperties() {
 
+        Map<String, String> props = new HashMap<>();
+        Map<String, String> serverXMLVariables = getServerXMLVariables();
+        if (serverXMLVariables != null) {
+            props.putAll(serverXMLVariables);
+        }
+
+        return props;
+    }
+
+    private Map<String, String> getServerXMLVariables() {
+
         PrivilegedAction<Map<String, String>> configAction = () -> {
             if (bundleContext == null) {
                 bundleContext = OSGiConfigUtils.getBundleContext(getClass());
             }
 
-            Map<String, String> osgiConfigs = OSGiConfigUtils.getVariableFromServerXML(bundleContext);
+            Map<String, String> serverXMLVariables = null;
+            if (bundleContext != null) { //bundleContext could be null if not inside an OSGi framework, e.g. unit test
+                serverXMLVariables = OSGiConfigUtils.getVariableFromServerXML(bundleContext);
+            }
 
-            return osgiConfigs;
+            return serverXMLVariables;
         };
 
         Map<String, String> props = AccessController.doPrivileged(configAction);

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2018 IBM Corporation and others.
+ * Copyright (c) 2018, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,10 +12,12 @@ package com.ibm.ws.microprofile.config13.sources;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
+import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
 import org.osgi.framework.FrameworkUtil;
@@ -28,13 +30,13 @@ import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
 import com.ibm.ws.cdi.CDIService;
 import com.ibm.ws.config.xml.ConfigVariables;
+import com.ibm.ws.ffdc.annotation.FFDCIgnore;
 import com.ibm.ws.microprofile.config.interfaces.ConfigException;
-import com.ibm.ws.microprofile.config.interfaces.ConfigStartException;
-import com.ibm.ws.microprofile.config13.interfaces.Config13Constants;
 import com.ibm.ws.runtime.metadata.ComponentMetaData;
 import com.ibm.ws.threadContext.ComponentMetaDataAccessorImpl;
 import com.ibm.wsspi.application.Application;
 import com.ibm.wsspi.kernel.service.utils.FilterUtils;
+import com.ibm.wsspi.kernel.service.utils.FrameworkState;
 
 /**
  * Assorted osgi based utility methods
@@ -43,40 +45,40 @@ public class OSGiConfigUtils {
 
     private static final TraceComponent tc = Tr.register(OSGiConfigUtils.class);
     /** Specifies the Factory PID attribute name in the Configuration. This will be used when searching the config. */
-    public static final String CFG_SERVICE_FACTORY_PID = "service.factoryPid";
+    private static final String CFG_SERVICE_FACTORY_PID = "service.factoryPid";
     /** Specifies the AppProperties value for a Factory PID sought in the Configuration */
-    public static final String CFG_APP_PROPERTIES = "com.ibm.ws.appconfig.appProperties";
+    private static final String CFG_APP_PROPERTIES = "com.ibm.ws.appconfig.appProperties";
     /** Specifies the Parent PID attribute name in the Configuration. This will be used when searching the config. */
-    public static final String CFG_CONFIG_PARENT_PID = "config.parentPID";
+    private static final String CFG_CONFIG_PARENT_PID = "config.parentPID";
     /** Specifies the nested AppProperties Property value for a Factory PID sought in the Configuration */
-    public static final String CFG_APP_PROPERTIES_PROPERTY = "com.ibm.ws.appconfig.appProperties.property";
+    private static final String CFG_APP_PROPERTIES_PROPERTY = "com.ibm.ws.appconfig.appProperties.property";
 
     /**
      * Get the j2ee name of the application. If the ComponentMetaData is available on the thread then that can be used, otherwise fallback
      * to asking the CDIService for the name ... the CDI context ID is the same as the j2ee name.
      *
+     * If CDI is not enabled then the CDIService will not be available and this method may return null
+     *
      * @param bundleContext The bundle context to use when looking up the CDIService
-     * @return the application name
+     * @return the application name or null
      */
-    public static String getApplicationName(BundleContext bundleContext) {
+    static String getApplicationName(BundleContext bundleContext) {
         String applicationName = null;
-        ComponentMetaData cmd = ComponentMetaDataAccessorImpl.getComponentMetaDataAccessor().getComponentMetaData();
+        if (FrameworkState.isValid()) {
+            ComponentMetaData cmd = ComponentMetaDataAccessorImpl.getComponentMetaDataAccessor().getComponentMetaData();
 
-        if (cmd == null) {
-            //if the component metadata is null then we're probably running in the CDI startup sequence so try asking CDI for the application
-            applicationName = getCDIAppName(bundleContext);
-        } else {
-            applicationName = cmd.getJ2EEName().getApplication();
-        }
-
-        if (applicationName == null) {
             if (cmd == null) {
-                throw new ConfigStartException(Tr.formatMessage(tc, "no.application.name.CWMCG0201E"));
+                //if the component metadata is null then we're probably running in the CDI startup sequence so try asking CDI for the application
+                //CDI may not be enabled
+                applicationName = getCDIAppName(bundleContext);
             } else {
-                throw new ConfigException(Tr.formatMessage(tc, "no.application.name.CWMCG0201E"));
+                applicationName = cmd.getJ2EEName().getApplication();
+                if (applicationName == null) {
+                    throw new ConfigException(Tr.formatMessage(tc, "no.application.name.CWMCG0201E"));
+                }
             }
-        }
 
+        }
         return applicationName;
 
     }
@@ -87,8 +89,16 @@ public class OSGiConfigUtils {
      * @param clazz the class to find the context for
      * @return the bundle context
      */
-    public static BundleContext getBundleContext(Class<?> clazz) {
-        return FrameworkUtil.getBundle(clazz).getBundleContext();
+    static BundleContext getBundleContext(Class<?> clazz) {
+        BundleContext context = null; //we'll return null if not running inside an OSGi framework (e.g. unit test)
+        if (FrameworkState.isValid()) {
+            Bundle bundle = FrameworkUtil.getBundle(clazz);
+
+            if (bundle != null) {
+                context = bundle.getBundleContext();
+            }
+        }
+        return context;
     }
 
     /**
@@ -96,8 +106,10 @@ public class OSGiConfigUtils {
      *
      * @param bundleContext the bundle context to use to find the service
      * @return the admin service
+     * @throws InvalidFrameworkStateException if the server OSGi framework is being shutdown
+     * @throws ServiceNotFoundException       if an instance of the requested service can not be found
      */
-    public static ConfigurationAdmin getConfigurationAdmin(BundleContext bundleContext) {
+    private static ConfigurationAdmin getConfigurationAdmin(BundleContext bundleContext) throws InvalidFrameworkStateException {
         return getService(bundleContext, ConfigurationAdmin.class);
     }
 
@@ -105,9 +117,11 @@ public class OSGiConfigUtils {
      * Get the CDIService if available
      *
      * @param bundleContext the context to use to find the CDIService
-     * @return the CDIService or null
+     * @return the CDIService
+     * @throws InvalidFrameworkStateException if the server OSGi framework is being shutdown
+     * @throws ServiceNotFoundException       if an instance of the requested service can not be found
      */
-    public static CDIService getCDIService(BundleContext bundleContext) {
+    private static CDIService getCDIService(BundleContext bundleContext) throws InvalidFrameworkStateException {
         return getService(bundleContext, CDIService.class);
     }
 
@@ -115,9 +129,11 @@ public class OSGiConfigUtils {
      * Get the Config Variables service if available
      *
      * @param bundleContext the context to use to find the ConfigVariables service
-     * @return the ConfigVariables service or null
+     * @return the ConfigVariables service
+     * @throws InvalidFrameworkStateException if the server OSGi framework is being shutdown
+     * @throws ServiceNotFoundException       if an instance of the requested service can not be found
      */
-    public static ConfigVariables getConfigVariables(BundleContext bundleContext) {
+    private static ConfigVariables getConfigVariables(BundleContext bundleContext) throws InvalidFrameworkStateException {
         return getService(bundleContext, ConfigVariables.class);
     }
 
@@ -125,41 +141,54 @@ public class OSGiConfigUtils {
      * Find a service of the given type
      *
      * @param bundleContext The context to use to find the service
-     * @param serviceClass The class of the required service
-     * @return the service instance or null
+     * @param serviceClass  The class of the required service
+     * @return the service instance
+     * @throws InvalidFrameworkStateException if the server OSGi framework is being shutdown
+     * @throws ServiceNotFoundException       if an instance of the requested service can not be found
      */
-    public static <T> T getService(BundleContext bundleContext, Class<T> serviceClass) {
+    private static <T> T getService(BundleContext bundleContext, Class<T> serviceClass) throws InvalidFrameworkStateException {
+        if (!FrameworkState.isValid()) {
+            throw new InvalidFrameworkStateException();
+        }
+
         ServiceReference<T> ref = bundleContext.getServiceReference(serviceClass);
+
         T service = null;
         if (ref != null) {
             service = bundleContext.getService(ref);
         }
 
+        if (service == null) {
+            throw new ServiceNotFoundException(serviceClass);
+        }
         return service;
     }
 
     /**
      * Get the Application ServiceReferences which has the given name, or null if not found
      *
-     * @param bundleContext The context to use to find the application service references
+     * @param bundleContext   The context to use to find the application service references
      * @param applicationName The application name to look for
      * @return A ServiceReference for the given application
      */
-    public static ServiceReference<Application> getApplicationServiceRef(BundleContext bundleContext, String applicationName) {
-        Collection<ServiceReference<Application>> appRefs;
-        try {
-            appRefs = bundleContext.getServiceReferences(Application.class,
-                                                         FilterUtils.createPropertyFilter("name", applicationName));
-        } catch (InvalidSyntaxException e) {
-            throw new ConfigException(e);
-        }
-
+    private static ServiceReference<Application> getApplicationServiceRef(BundleContext bundleContext, String applicationName) {
         ServiceReference<Application> appRef = null;
-        if (appRefs != null && appRefs.size() > 0) {
-            if (appRefs.size() > 1) {
-                throw new ConfigException(Tr.formatMessage(tc, "duplicate.application.name.CWMCG0202E", applicationName));
+
+        if (FrameworkState.isValid()) {
+            Collection<ServiceReference<Application>> appRefs;
+            try {
+                appRefs = bundleContext.getServiceReferences(Application.class,
+                                                             FilterUtils.createPropertyFilter("name", applicationName));
+            } catch (InvalidSyntaxException e) {
+                throw new ConfigException(e);
             }
-            appRef = appRefs.iterator().next();
+
+            if (appRefs != null && appRefs.size() > 0) {
+                if (appRefs.size() > 1) {
+                    throw new ConfigException(Tr.formatMessage(tc, "duplicate.application.name.CWMCG0202E", applicationName));
+                }
+                appRef = appRefs.iterator().next();
+            }
         }
 
         return appRef;
@@ -168,21 +197,24 @@ public class OSGiConfigUtils {
     /**
      * Get the internal OSGi identifier for the Application with the given name
      *
-     * @param bundleContext The context to use to find the Application reference
+     * @param bundleContext   The context to use to find the Application reference
      * @param applicationName The application name to look for
      * @return The application pid
      */
-    public static String getApplicationPID(BundleContext bundleContext, String applicationName) {
+    private static String getApplicationPID(BundleContext bundleContext, String applicationName) {
         String applicationPID = null;
-        ServiceReference<?> appRef = getApplicationServiceRef(bundleContext, applicationName);
-        if (appRef != null) {
-            //not actually sure what the difference is between service.pid and ibm.extends.source.pid but this is the way it is done everywhere else!
-            applicationPID = (String) appRef.getProperty(Constants.SERVICE_PID);
-            String sourcePid = (String) appRef.getProperty("ibm.extends.source.pid");
-            if (sourcePid != null) {
-                applicationPID = sourcePid;
+
+        if (FrameworkState.isValid()) {
+            ServiceReference<?> appRef = getApplicationServiceRef(bundleContext, applicationName);
+            if (appRef != null) {
+                //not actually sure what the difference is between service.pid and ibm.extends.source.pid but this is the way it is done everywhere else!
+                applicationPID = (String) appRef.getProperty(Constants.SERVICE_PID);
+                String sourcePid = (String) appRef.getProperty("ibm.extends.source.pid");
+                if (sourcePid != null) {
+                    applicationPID = sourcePid;
+                }
             }
-        } ;
+        }
         return applicationPID;
 
     }
@@ -190,15 +222,24 @@ public class OSGiConfigUtils {
     /**
      * Get the current application name using the CDIService. During CDI startup, the CDIService knows which application it is currently working with so we can ask it!
      *
+     * CDI may not be enabled, in which case the service will not be found and this method will just return null.
+     *
      * @param bundleContext the context to use to find the CDIService
-     * @return The application name
+     * @return The application name or null
      */
-    public static String getCDIAppName(BundleContext bundleContext) {
+    @FFDCIgnore({ InvalidFrameworkStateException.class, ServiceNotFoundException.class })
+    private static String getCDIAppName(BundleContext bundleContext) {
         String appName = null;
-        // Get the CDIService
-        CDIService cdiService = getCDIService(bundleContext);
-        if (cdiService != null) {
-            appName = cdiService.getCurrentApplicationContextID();
+        if (FrameworkState.isValid()) {
+            try {
+                // Get the CDIService
+                CDIService cdiService = getCDIService(bundleContext);
+                appName = cdiService.getCurrentApplicationContextID();
+            } catch (InvalidFrameworkStateException e) {
+                //ignore ... server is shutting down
+            } catch (ServiceNotFoundException e) {
+                //ignore ... CDI feature may not be enabled
+            }
         }
         return appName;
     }
@@ -209,7 +250,7 @@ public class OSGiConfigUtils {
      * @param applicationPid The pid of the application in the config
      * @return A filter string to be used by the OSGi ConfigurationAdmin service
      */
-    public static String getApplicationPropertiesConfigFilter(String applicationPid) {
+    private static String getApplicationPropertiesConfigFilter(String applicationPid) {
         String applicationConfigFilter = null;
 
         StringBuilder applicationFilter = new StringBuilder(200);
@@ -229,7 +270,7 @@ public class OSGiConfigUtils {
      * @param applicationPid The pid of the appProperties element in the config
      * @return A filter string to be used by the OSGi ConfigurationAdmin service
      */
-    public static String getApplicationPropertiesPropertyConfigFilter(String applicationPropertyPid) {
+    private static String getApplicationPropertiesPropertyConfigFilter(String applicationPropertyPid) {
         String applicationConfigFilter = null;
 
         StringBuilder applicationFilter = new StringBuilder(200);
@@ -246,76 +287,95 @@ public class OSGiConfigUtils {
     /**
      * Get the Configuration object which represents a <appProperties> element in the server.xml for a given application
      *
-     * @param bundleContext The context to use in looking up OSGi service references
+     * @param bundleContext   The context to use in looking up OSGi service references
      * @param applicationName The application name to look for
      * @return The Configuration instance
      */
-    public static SortedSet<Configuration> getConfigurations(BundleContext bundleContext, String applicationName) {
+    @FFDCIgnore(InvalidFrameworkStateException.class)
+    static SortedSet<Configuration> getConfigurations(BundleContext bundleContext, String applicationName) {
 
         //sorting the Configuration objects by their PID which are in the format "appProperties.property_xx" where xx is an incrementing integer
         //so the first one discovered might be "appProperties.property_17" and the second one is "appProperties.property_18"
         //This ordering is not a defined API but I'm hoping that it won't change
         SortedSet<Configuration> configSet = new TreeSet<>((o1, o2) -> o1.getPid().compareTo(o2.getPid()));
 
-        try {
-            String applicationPID = getApplicationPID(bundleContext, applicationName);
-            String applicationPropertiesPid = null;
-            ConfigurationAdmin admin = getConfigurationAdmin(bundleContext);
-            if (applicationPID != null && admin != null) {
-                String appPropertiesFilter = getApplicationPropertiesConfigFilter(applicationPID);
-                Configuration[] appPropertiesOsgiConfigs = admin.listConfigurations(appPropertiesFilter);
-                if (appPropertiesOsgiConfigs != null) {
-                    for (Configuration cfg : appPropertiesOsgiConfigs) {
-                        applicationPropertiesPid = cfg.getPid();
+        if (FrameworkState.isValid()) {
+            try {
+                String applicationPID = getApplicationPID(bundleContext, applicationName);
+                String applicationPropertiesPid = null;
+                ConfigurationAdmin admin = getConfigurationAdmin(bundleContext);
+                if (applicationPID != null) {
+                    String appPropertiesFilter = getApplicationPropertiesConfigFilter(applicationPID);
+                    Configuration[] appPropertiesOsgiConfigs = admin.listConfigurations(appPropertiesFilter);
+                    if (appPropertiesOsgiConfigs != null) {
+                        for (Configuration cfg : appPropertiesOsgiConfigs) {
+                            applicationPropertiesPid = cfg.getPid();
+                        }
                     }
-                }
 
-                if (applicationPropertiesPid != null) {
-                    String appPropertiesPropertyFilter = getApplicationPropertiesPropertyConfigFilter(applicationPropertiesPid);
-                    Configuration[] appPropertiesPropertyOsgiConfigs = admin.listConfigurations(appPropertiesPropertyFilter);
-                    if (appPropertiesPropertyOsgiConfigs != null) {
-                        for (Configuration cfg : appPropertiesPropertyOsgiConfigs) {
-                            configSet.add(cfg);
+                    if (applicationPropertiesPid != null) {
+                        String appPropertiesPropertyFilter = getApplicationPropertiesPropertyConfigFilter(applicationPropertiesPid);
+                        Configuration[] appPropertiesPropertyOsgiConfigs = admin.listConfigurations(appPropertiesPropertyFilter);
+                        if (appPropertiesPropertyOsgiConfigs != null) {
+                            for (Configuration cfg : appPropertiesPropertyOsgiConfigs) {
+                                configSet.add(cfg);
+                            }
                         }
                     }
                 }
-            }
-        } catch (IOException |
+            } catch (IOException |
 
-                        InvalidSyntaxException e) {
-            throw new ConfigException(e);
+                            InvalidSyntaxException e) {
+                throw new ConfigException(e);
+            } catch (InvalidFrameworkStateException e) {
+                //ignore ... server is shutting down
+            }
         }
 
         return configSet;
     }
 
     /**
-     * Get a Map that represents the name/value pairs of <variable> elements in the server.xml
+     * Get a Map that represents the name/value pairs of <variable name="x" value="y"> elements in the server.xml
      *
      * @param bundleContext the context to use in looking up OSGi service references
      * @return
      */
-    public static Map<String, String> getVariableFromServerXML(BundleContext bundleContext) {
+    @FFDCIgnore(InvalidFrameworkStateException.class)
+    static Map<String, String> getVariableFromServerXML(BundleContext bundleContext) {
+        Map<String, String> theMap = new HashMap<>();
+        if (FrameworkState.isValid()) {
+            try {
+                ConfigVariables configVars = getConfigVariables(bundleContext);
 
-        ConfigVariables configVars = getConfigVariables(bundleContext);
-
-        // Retrieve the Map of variables that have been defined in the server.xml
-        Map<String, String> theMap = configVars.getUserDefinedVariables();
+                // Retrieve the Map of variables that have been defined in the server.xml
+                theMap.putAll(configVars.getUserDefinedVariables());
+            } catch (InvalidFrameworkStateException e) {
+                //ignore ... the framework is shutting down
+            }
+        }
         return theMap;
     }
 
     /**
-     * Test to see if the given configuration key starts with any known system prefixes
+     * Get a Map that represents the name/value pairs of <variable name="x" defaultValue="y"> elements in the server.xml
      *
-     * @param key the key to test
-     * @return true if it startsWith one of the system prefixes
+     * @param bundleContext the context to use in looking up OSGi service references
+     * @return
      */
-    public static boolean isSystemKey(String key) {
-        for (String prefix : Config13Constants.SYSTEM_PREFIXES) {
-            if (key.startsWith(prefix)) {
-                return true;
+    @FFDCIgnore(InvalidFrameworkStateException.class)
+    static Map<String, String> getDefaultVariablesFromServerXML(BundleContext bundleContext) {
+        Map<String, String> theMap = new HashMap<>();
+        if (FrameworkState.isValid()) {
+            try {
+                ConfigVariables configVars = getConfigVariables(bundleContext);
+
+                // Retrieve the Map of variables that have been defined in the server.xml
+                theMap.putAll(configVars.getUserDefinedVariableDefaults());
+            } catch (InvalidFrameworkStateException e) {
+                //ignore ... the framework is shutting down
             }
         }
-        return false;
+        return theMap;
     }
 }

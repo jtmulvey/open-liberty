@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2012, 2017 IBM Corporation and others.
+ * Copyright (c) 2012, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -58,6 +58,8 @@ public class BaseTraceFormatter extends Formatter {
     static final String emptyStringReplacement = "\"\"";
     static final String ENTRY = "Entry ";
     static final String EXIT = "Exit ";
+    static final String SYSOUT = "SystemOut";
+    static final String SYSERR = "SystemErr";
 
     /**
      * Array used to convert integers to hex values
@@ -155,21 +157,6 @@ public class BaseTraceFormatter extends Formatter {
         }
         return "";
     }
-
-    //copied from BTS
-    /** Flags for suppressing traceback output to the console */
-    private static class StackTraceFlags {
-        boolean needsToOutputInternalPackageMarker = false;
-        boolean isSuppressingTraces = false;
-    }
-
-    /** Track the stack trace printing activity of the current thread */
-    private static ThreadLocal<StackTraceFlags> traceFlags = new ThreadLocal<StackTraceFlags>() {
-        @Override
-        protected StackTraceFlags initialValue() {
-            return new StackTraceFlags();
-        }
-    };
 
     final TraceFormat traceFormat;
 
@@ -474,7 +461,12 @@ public class BaseTraceFormatter extends Formatter {
         // This is a very light trace format, based on enhanced:
         StringBuilder sb = new StringBuilder(256);
         String sym = getMarker(logRecord);
-        String name = nonNullString(logRecord.getLoggerName(), logRecord.getSourceClassName());
+        String name = null;
+        if (logRecord.getLoggerName() != null && (logRecord.getLoggerName().equals(SYSOUT) ||
+                                                 logRecord.getLoggerName().equals(SYSERR)))
+            name = nonNullString(logRecord.getLoggerName(), null);
+        else
+            name = nonNullString(logRecord.getLoggerName(), logRecord.getSourceClassName());
 
         sb.append('[').append(DateFormatHelper.formatTime(logRecord.getMillis(), useIsoDateFormat)).append("] ");
         sb.append(DataFormatHelper.getThreadId()).append(' ');

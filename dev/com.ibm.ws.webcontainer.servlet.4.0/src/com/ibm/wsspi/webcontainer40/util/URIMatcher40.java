@@ -42,7 +42,7 @@ public class URIMatcher40 extends URIMatcher {
 
     /**
      * This method is the same as the parent implementation with the exception that it sets the
-     * MappingMatch value for each match on the SRTServletRequestThreadData40.
+     * MappingMatch value for each match on the WebAppDispatcherContext40.
      *
      * @param req
      * @return RequestProcessor
@@ -203,13 +203,21 @@ public class URIMatcher40 extends URIMatcher {
 
         // hit the defaultNode "/*"
         if (defaultNode != null) {
-
             // Servlet 4.0: default match
-            dispatchContext.setMappingMatch(MappingMatch.DEFAULT);
-            if (TraceComponent.isAnyTracingEnabled() && logger.isLoggable(Level.FINE)) {
-                logger.logp(Level.FINE, CLASS_NAME, methodName, "set MappingMatch to: " + MappingMatch.DEFAULT);
-            }
+            // Two possibilities here:  1. /* mapping.  This can be considered a special MappingMatch.PATH where the PATH happens to be just the root /
+            //                          2. / (default servlet) mapping
 
+            if (dispatchContext.hasSlashStarMapping()) {
+                dispatchContext.setMappingMatch(MappingMatch.PATH);
+                if (TraceComponent.isAnyTracingEnabled() && logger.isLoggable(Level.FINE)) {
+                    logger.logp(Level.FINE, CLASS_NAME, methodName, "default, set MappingMatch to: " + MappingMatch.PATH);
+                }
+            } else {
+                dispatchContext.setMappingMatch(MappingMatch.DEFAULT);
+                if (TraceComponent.isAnyTracingEnabled() && logger.isLoggable(Level.FINE)) {
+                    logger.logp(Level.FINE, CLASS_NAME, methodName, "default, set MappingMatch to: " + MappingMatch.DEFAULT);
+                }
+            }
             //PK39337 - start
             dispatchContext.setPossibleSlashStarMapping(true);
             //PK39337 - end
@@ -217,7 +225,7 @@ public class URIMatcher40 extends URIMatcher {
             // PK80340 Start
             Object starTarget = defaultNode.getStarTarget();
 
-            if (WCCustomProperties.ENABLE_DEFAULT_SERVLET_REQUEST_PATH_ELEMENTS && (starTarget instanceof ServletWrapper) && ((ServletWrapper) starTarget).isDefaultServlet()) {
+            if (URIMatcher.SERVLET_PATH_FOR_DEFAULT_MAPPING && (starTarget instanceof ServletWrapper) && ((ServletWrapper) starTarget).isDefaultServlet()) {
                 dispatchContext.setPathElements(uri, null);
             } else {
                 dispatchContext.setPathElements("", uri);

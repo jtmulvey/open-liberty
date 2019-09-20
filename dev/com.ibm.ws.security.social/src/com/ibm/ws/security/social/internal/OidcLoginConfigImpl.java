@@ -6,27 +6,34 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package com.ibm.ws.security.social.internal;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import javax.net.ssl.SSLSocketFactory;
 
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.ConfigurationPolicy;
 
+import com.ibm.json.java.JSONObject;
 import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
 import com.ibm.websphere.ras.annotation.Sensitive;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
+import com.ibm.ws.security.common.config.DiscoveryConfigUtils;
+import com.ibm.ws.security.common.http.HttpUtils;
 import com.ibm.ws.security.common.jwk.impl.JWKSet;
 import com.ibm.ws.security.jwt.config.ConsumerUtils;
 import com.ibm.ws.security.jwt.config.JwtConsumerConfig;
 import com.ibm.ws.security.openidconnect.clients.common.ConvergedClientConfig;
 import com.ibm.ws.security.openidconnect.clients.common.OidcClientConfig;
+import com.ibm.ws.security.openidconnect.common.ConfigUtils;
 import com.ibm.ws.security.social.SocialLoginConfig;
 import com.ibm.ws.security.social.SocialLoginService;
 import com.ibm.ws.security.social.TraceConstants;
@@ -41,7 +48,7 @@ import com.ibm.ws.security.social.error.SocialLoginException;
  * . The other is for JwtConsumerConfig. This make oidcLogin does not need to define an additional jJwtConsumerConfig
  * .. So, we can reuse the jwksUri and sslRef defined in the oidcLogin.
  */
-@Component(name = "com.ibm.ws.security.social.oidclogin", configurationPolicy = ConfigurationPolicy.REQUIRE, immediate = true, service = { SocialLoginConfig.class, JwtConsumerConfig.class }, property = { "service.vendor=IBM", "type=oidcLogin" })
+@Component(name = "com.ibm.ws.security.social.oidclogin", configurationPolicy = ConfigurationPolicy.REQUIRE, service = { SocialLoginConfig.class, JwtConsumerConfig.class }, property = { "service.vendor=IBM", "type=oidcLogin" })
 public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtConsumerConfig, ConvergedClientConfig {
     public static final TraceComponent tc = Tr.register(OidcLoginConfigImpl.class, TraceConstants.TRACE_GROUP, TraceConstants.MESSAGE_BUNDLE);
 
@@ -63,11 +70,36 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
 
     public static final String KEY_TRUSTED_ALIAS = "trustAliasName";
     private String trustAliasName = null;
-    
+
     public static final String KEY_USERINFO_ENDPOINT = "userInfoEndpoint";
     private String userInfoEndpoint = null;
     public static final String KEY_USERINFO_ENDPOINT_ENABLED = "userInfoEndpointEnabled";
-    private boolean userInfoEndpointEnabled = true;
+    private boolean userInfoEndpointEnabled = false;
+
+    public static final String KEY_DISCOVERY_ENDPOINT = "discoveryEndpoint";
+    private String discoveryEndpointUrl = null;
+    private JSONObject discoveryjson = null;
+    private boolean discovery = false;
+
+    public static final String KEY_DISCOVERY_POLLING_RATE = "discoveryPollingRate";
+    private long discoveryPollingRate = 5 * 60 * 1000; // 5 minutes in milliseconds
+    private String discoveryDocumentHash = null;
+    private long nextDiscoveryTime;
+
+    public static final String OPDISCOVERY_AUTHZ_EP_URL = "authorization_endpoint";
+    public static final String OPDISCOVERY_TOKEN_EP_URL = "token_endpoint";
+    public static final String OPDISCOVERY_INTROSPECTION_EP_URL = "introspection_endpoint";
+    public static final String OPDISCOVERY_JWKS_EP_URL = "jwks_uri";
+    public static final String OPDISCOVERY_USERINFO_EP_URL = "userinfo_endpoint";
+    public static final String OPDISCOVERY_ISSUER = "issuer";
+    public static final String OPDISCOVERY_TOKEN_EP_AUTH = "token_endpoint_auth_methods_supported";
+    public static final String OPDISCOVERY_SCOPES = "scopes_supported";
+    public static final String OPDISCOVERY_IDTOKEN_SIGN_ALG = "id_token_signing_alg_values_supported";
+
+    public static final String KEY_JWK_CLIENT_ID = "jwkClientId";
+    public static final String KEY_JWK_CLIENT_SECRET = "jwkClientSecret";
+    private String jwkClientId = null;
+    private String jwkClientSecret = null;
 
     public static final String KEY_RESPONSE_MODE = "responseMode";
     private String responseMode = null;
@@ -75,7 +107,26 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     public static final String KEY_NONCE_ENABLED = "nonceEnabled";
 
     public static final String KEY_INCLUDE_CUSTOM_CACHE_KEY_IN_SUBJECT = "includeCustomCacheKeyInSubject";
+
     private boolean includeCustomCacheKeyInSubject = true;
+
+    public static final String KEY_AUTHZ_PARAM = "authzParameter";
+    public static final String KEY_TOKEN_PARAM = "tokenParameter";
+    public static final String KEY_USERINFO_PARAM = "userinfoParameter";
+    public static final String KEY_JWK_PARAM = "jwkParameter";
+    public static final String KEY_PARAM_NAME = "name";
+    public static final String KEY_PARAM_VALUE = "value";
+    private HashMap<String, String> authzRequestParamMap;
+    private HashMap<String, String> tokenRequestParamMap;
+    private HashMap<String, String> userinfoRequestParamMap;
+    private HashMap<String, String> jwkRequestParamMap;
+
+    public static final String CFG_KEY_FORWARD_LOGIN_PARAMETER = "forwardLoginParameter";
+    private List<String> forwardLoginParameter = null;
+
+    HttpUtils httputils = new HttpUtils();
+    ConfigUtils oidcConfigUtils = new ConfigUtils(null);
+    DiscoveryConfigUtils discoveryUtil = new DiscoveryConfigUtils();
 
     @Override
     protected void setRequiredConfigAttributes(Map<String, Object> props) {
@@ -85,35 +136,204 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
 
     @Override
     protected void setOptionalConfigAttributes(Map<String, Object> props) throws SocialLoginException {
-        this.userInfoEndpoint = configUtils.getConfigAttribute(props, KEY_USERINFO_ENDPOINT);
+
+        this.useSystemPropertiesForHttpClientConnections = configUtils.getBooleanConfigAttribute(props, KEY_USE_SYSPROPS_FOR_HTTPCLIENT_CONNECTONS, false);
+        this.sslRef = configUtils.getConfigAttribute(props, KEY_sslRef);
+        this.discoveryEndpointUrl = configUtils.getConfigAttribute(props, KEY_DISCOVERY_ENDPOINT);
+        discoveryPollingRate = configUtils.getLongConfigAttribute(props, KEY_DISCOVERY_POLLING_RATE, discoveryPollingRate);
+        jwkClientId = configUtils.getConfigAttribute(props, KEY_JWK_CLIENT_ID);
+        jwkClientSecret = configUtils.processProtectedString(props, KEY_JWK_CLIENT_SECRET);
+        this.hostNameVerificationEnabled = configUtils.getBooleanConfigAttribute(props, CFG_KEY_HOST_NAME_VERIFICATION_ENABLED, this.hostNameVerificationEnabled);
         this.userInfoEndpointEnabled = configUtils.getBooleanConfigAttribute(props, KEY_USERINFO_ENDPOINT_ENABLED, this.userInfoEndpointEnabled);
-        this.authorizationEndpoint = configUtils.getConfigAttribute(props, KEY_authorizationEndpoint);
-        this.tokenEndpoint = configUtils.getConfigAttribute(props, KEY_tokenEndpoint);
-        this.jwksUri = configUtils.getConfigAttribute(props, KEY_jwksUri);
+        this.signatureAlgorithm = configUtils.getConfigAttribute(props, KEY_SIGNATURE_ALGORITHM);
+        this.tokenEndpointAuthMethod = configUtils.getConfigAttribute(props, KEY_tokenEndpointAuthMethod);
         this.scope = configUtils.getConfigAttribute(props, KEY_scope);
+
+        discovery = false;
+        discoveryjson = null;
+        if (discoveryEndpointUrl != null) {
+            discovery = handleDiscoveryEndpoint(discoveryEndpointUrl);
+            if (discovery) {
+                discoveryUtil.logDiscoveryWarning(props);
+            } else {
+                reConfigEndpointsAfterDiscoveryFailure();
+            }
+        } else {
+            this.userInfoEndpoint = configUtils.getConfigAttribute(props, KEY_USERINFO_ENDPOINT);
+            this.authorizationEndpoint = getRequiredConfigAttribute(props, KEY_authorizationEndpoint);
+            this.tokenEndpoint = configUtils.getConfigAttribute(props, KEY_tokenEndpoint);
+            this.jwksUri = configUtils.getConfigAttribute(props, KEY_jwksUri);
+            this.issuer = configUtils.getConfigAttribute(props, KEY_ISSUER);
+        }
+
         this.userNameAttribute = configUtils.getConfigAttribute(props, KEY_userNameAttribute);
         this.mapToUserRegistry = configUtils.getBooleanConfigAttribute(props, KEY_mapToUserRegistry, this.mapToUserRegistry);
-        this.sslRef = configUtils.getConfigAttribute(props, KEY_sslRef);
         this.authFilterRef = configUtils.getConfigAttribute(props, KEY_authFilterRef);
         this.trustAliasName = configUtils.getConfigAttribute(props, KEY_TRUSTED_ALIAS);
         this.isClientSideRedirectSupported = configUtils.getBooleanConfigAttribute(props, KEY_isClientSideRedirectSupported, this.isClientSideRedirectSupported);
         this.displayName = configUtils.getConfigAttribute(props, KEY_displayName);
         this.website = configUtils.getConfigAttribute(props, KEY_website);
-        this.issuer = configUtils.getConfigAttribute(props, KEY_ISSUER);
+
         this.realmNameAttribute = configUtils.getConfigAttribute(props, KEY_realmNameAttribute);
         this.groupNameAttribute = configUtils.getConfigAttribute(props, KEY_groupNameAttribute);
         this.userUniqueIdAttribute = configUtils.getConfigAttribute(props, KEY_userUniqueIdAttribute);
         this.clockSkewMsec = configUtils.getIntegerConfigAttribute(props, KEY_CLOCKSKEW, this.clockSkewMsec);
-        this.signatureAlgorithm = configUtils.getConfigAttribute(props, KEY_SIGNATURE_ALGORITHM);
-        this.tokenEndpointAuthMethod = configUtils.getConfigAttribute(props, KEY_tokenEndpointAuthMethod);
+
         this.redirectToRPHostAndPort = configUtils.getConfigAttribute(props, KEY_redirectToRPHostAndPort);
-        this.hostNameVerificationEnabled = configUtils.getBooleanConfigAttribute(props, CFG_KEY_HOST_NAME_VERIFICATION_ENABLED, this.hostNameVerificationEnabled);
+
         this.responseType = configUtils.getConfigAttribute(props, KEY_responseType);
         this.responseMode = configUtils.getConfigAttribute(props, KEY_RESPONSE_MODE);
         this.nonce = configUtils.getBooleanConfigAttribute(props, KEY_NONCE_ENABLED, this.nonce);
         this.realmName = configUtils.getConfigAttribute(props, KEY_realmName);
         this.includeCustomCacheKeyInSubject = configUtils.getBooleanConfigAttribute(props, KEY_INCLUDE_CUSTOM_CACHE_KEY_IN_SUBJECT, this.includeCustomCacheKeyInSubject);
         this.resource = configUtils.getConfigAttribute(props, KEY_resource);
+
+        authzRequestParamMap = populateCustomRequestParameterMap(props, KEY_AUTHZ_PARAM);
+        tokenRequestParamMap = populateCustomRequestParameterMap(props, KEY_TOKEN_PARAM);
+        userinfoRequestParamMap = populateCustomRequestParameterMap(props, KEY_USERINFO_PARAM);
+        jwkRequestParamMap = populateCustomRequestParameterMap(props, KEY_JWK_PARAM);
+
+        forwardLoginParameter = oidcConfigUtils.readAndSanitizeForwardLoginParameter(props, this.uniqueId, CFG_KEY_FORWARD_LOGIN_PARAMETER);
+
+        if (discovery) {
+            String OIDC_CLIENT_DISCOVERY_COMPLETE = "CWWKS6110I: The client [{" + getId() + "}] configuration has been established with the information from the discovery endpoint URL [{" + this.discoveryEndpointUrl + "}]. This information enables the client to interact with the OpenID Connect provider to process the requests such as authorization and token.";
+            discoveryUtil.logDiscoveryMessage("OIDC_CLIENT_DISCOVERY_COMPLETE", null, OIDC_CLIENT_DISCOVERY_COMPLETE);
+        }
+
+    }
+
+    private HashMap<String, String> populateCustomRequestParameterMap(Map<String, Object> configProps, String configAttributeName) {
+        HashMap<String, String> customRequestParameterMap = new HashMap<String, String>();
+        String[] customRequestParameterElements = configUtils.getStringArrayConfigAttribute(configProps, configAttributeName);
+        if (customRequestParameterElements != null && customRequestParameterElements.length > 0) {
+            populateCustomRequestParameterMap(customRequestParameterMap, customRequestParameterElements);
+        }
+        return customRequestParameterMap;
+    }
+
+    /**
+     * 
+     */
+    private void reConfigEndpointsAfterDiscoveryFailure() {
+        authorizationEndpoint = null;
+        tokenEndpoint = null;
+        userInfoEndpoint = null;
+        jwksUri = null;
+        issuer = null;
+        this.discoveryDocumentHash = null;
+        discoveryUtil = discoveryUtil.initialConfig(getId(), this.discoveryEndpointUrl, this.discoveryPollingRate).discoveryDocumentResult(null).discoveryDocumentHash(this.discoveryDocumentHash).discoveredConfig(this.signatureAlgorithm, this.tokenEndpointAuthMethod, this.scope);
+    }
+
+    @FFDCIgnore({ Exception.class })
+    public boolean handleDiscoveryEndpoint(String discoveryUrl) {
+
+        String jsonString = null;
+
+        boolean valid = false;
+
+        try {
+            setNextDiscoveryTime();
+            if (!isValidDiscoveryUrl(discoveryUrl)) {
+                Tr.error(tc, "OIDC_CLIENT_DISCOVERY_SSL_ERROR", getId(), discoveryUrl);
+                return false;
+            }
+
+            SSLSocketFactory sslSocketFactory = getSSLSocketFactory();
+            jsonString = httputils.getHttpRequest(sslSocketFactory, discoveryUrl, hostNameVerificationEnabled, null, null); // do not need to add basic auth header       
+            if (jsonString != null) {
+                parseJsonResponse(jsonString);
+                if (this.discoveryjson != null) {
+                    valid = discoverEndpointUrls(this.discoveryjson);
+                }
+            }
+
+        } catch (Exception e) {
+            if (tc.isDebugEnabled()) {
+                Tr.debug(tc, "Fail to get successful discovery response : ", e.getCause());
+            }
+        }
+
+        if (!valid) {
+            Tr.error(tc, "OIDC_CLIENT_DISCOVERY_SSL_ERROR", getId(), discoveryUrl);
+        }
+        return valid;
+    }
+
+    /**
+     * @param json
+     */
+    boolean discoverEndpointUrls(JSONObject json) {
+
+        discoveryUtil = discoveryUtil.initialConfig(getId(), this.discoveryEndpointUrl, this.discoveryPollingRate).discoveryDocumentResult(json).discoveryDocumentHash(this.discoveryDocumentHash).discoveredConfig(this.signatureAlgorithm, this.tokenEndpointAuthMethod, this.scope);
+        if (discoveryUtil.calculateDiscoveryDocumentHash(json)) {
+            this.authorizationEndpoint = discoveryUtil.discoverOPConfigSingleValue(json.get(OPDISCOVERY_AUTHZ_EP_URL));
+            this.tokenEndpoint = discoveryUtil.discoverOPConfigSingleValue(json.get(OPDISCOVERY_TOKEN_EP_URL));
+            this.jwksUri = discoveryUtil.discoverOPConfigSingleValue(json.get(OPDISCOVERY_JWKS_EP_URL));
+            this.userInfoEndpoint = discoveryUtil.discoverOPConfigSingleValue(json.get(OPDISCOVERY_USERINFO_EP_URL));
+            this.issuer = discoveryUtil.discoverOPConfigSingleValue(json.get(OPDISCOVERY_ISSUER));
+            //handleValidationEndpoint(json);
+            if (invalidEndpoints() || invalidIssuer()) {
+                return false;
+            }
+            //adjustSignatureAlgorithm();
+            this.tokenEndpointAuthMethod = discoveryUtil.adjustTokenEndpointAuthMethod();
+            this.scope = discoveryUtil.adjustScopes();
+            this.discoveryDocumentHash = discoveryUtil.getDiscoveryDocumentHash();
+        }
+
+        return true;
+    }
+
+    //@Override //TODO:
+    public void setNextDiscoveryTime() {
+        this.nextDiscoveryTime = System.currentTimeMillis() + discoveryPollingRate;
+    }
+
+    //@Override //TODO:
+    public long getNextDiscoveryTime() {
+        return this.nextDiscoveryTime;
+    }
+
+    /**
+     * @return
+     */
+    private boolean invalidIssuer() {
+        return this.issuer == null;
+    }
+
+    /**
+     * @return
+     */
+    private boolean invalidEndpoints() {
+        //TODO check other information also and make sure that we have valid values
+        return (this.authorizationEndpoint == null && this.tokenEndpoint == null);
+    }
+
+    /**
+     * @param jsonString
+     * @return
+     */
+    protected void parseJsonResponse(String jsonString) {
+        try {
+            this.discoveryjson = JSONObject.parse(jsonString);
+        } catch (Exception e) {
+            if (tc.isDebugEnabled()) {
+                Tr.debug(tc, "Caught exception parsing JSON string [" + jsonString + "]: " + e.getMessage());
+            }
+        }
+    }
+
+    //@Override
+    public boolean isDiscoveryInUse() {
+        return isValidDiscoveryUrl(this.discoveryEndpointUrl);
+    }
+
+    /**
+     * @param discoveryUrl
+     * @return
+     */
+    private boolean isValidDiscoveryUrl(String discoveryUrl) {
+        return discoveryUrl != null && discoveryUrl.startsWith("https");
     }
 
     @Override
@@ -169,16 +389,17 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
             Tr.debug(tc, KEY_realmName + " = " + realmName);
             Tr.debug(tc, KEY_INCLUDE_CUSTOM_CACHE_KEY_IN_SUBJECT + " = " + includeCustomCacheKeyInSubject);
             Tr.debug(tc, KEY_resource + " = " + resource);
+            Tr.debug(tc, CFG_KEY_FORWARD_LOGIN_PARAMETER + " = " + forwardLoginParameter);
         }
     }
-    
+
     @Override
-    public boolean isUserInfoEnabled(){
+    public boolean isUserInfoEnabled() {
         return this.userInfoEndpointEnabled;
     }
-    
+
     @Override
-    public String getUserInfoEndpointUrl(){
+    public String getUserInfoEndpointUrl() {
         return this.userInfoEndpoint;
     }
 
@@ -369,14 +590,12 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public boolean getAccessTokenInLtpaCookie() {
-        // TODO Auto-generated method stub
         return false;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean isAuthnSessionDisabled_propagation() {
-        // TODO Auto-generated method stub
         return false;
     }
 
@@ -394,21 +613,18 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public boolean createSession() {
-        // TODO Auto-generated method stub
         return false;
     }
 
     /** {@inheritDoc} */
     @Override
     public long getAuthenticationTimeLimitInSeconds() {
-        // TODO Auto-generated method stub
         return 420;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean isHttpsRequired() {
-        // TODO Auto-generated method stub
         return true;
     }
 
@@ -438,7 +654,6 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public String getRedirectUrlFromServerToClient() {
-        // TODO Auto-generated method stub
         return getRedirectToRPHostAndPort();
     }
 
@@ -451,15 +666,7 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public String getAuthContextClassReference() {
-        // TODO Auto-generated method stub
         return null;
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public String getGrantType() {
-        // TODO Auto-generated method stub
-        return "authorization_code";
     }
 
     /** {@inheritDoc} */
@@ -471,14 +678,12 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public String getPrompt() {
-        // TODO Auto-generated method stub
         return null;
     }
 
     /** {@inheritDoc} */
     @Override
     public String[] getResources() {
-        // TODO Auto-generated method stub
         String resource = getResource();
         if (resource == null) {
             return null;
@@ -489,7 +694,6 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public String getOidcClientCookieName() {
-        // TODO Auto-generated method stub
         return null;
     }
 
@@ -502,7 +706,6 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public boolean getUseAccessTokenAsIdToken() {
-        // TODO Auto-generated method stub
         return false;
     }
 
@@ -515,92 +718,118 @@ public class OidcLoginConfigImpl extends Oauth2LoginConfigImpl implements JwtCon
     /** {@inheritDoc} */
     @Override
     public boolean isIncludeCustomCacheKeyInSubject() {
-        // TODO Auto-generated method stub
         return false;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean isIncludeIdTokenInSubject() {
-        // TODO Auto-generated method stub
         return true;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean isDisableLtpaCookie() {
-        // TODO Auto-generated method stub
         return false;
     }
 
     /** {@inheritDoc} */
     @Override
     public String getGroupIdentifier() {
-        // TODO Auto-generated method stub
         return getGroupNameAttribute();
     }
 
     /** {@inheritDoc} */
     @Override
     public String getUserIdentifier() {
-        // TODO Auto-generated method stub
         return getUserNameAttribute();
     }
 
     /** {@inheritDoc} */
     @Override
     public String getUserIdentityToCreateSubject() {
-        // TODO Auto-generated method stub
         return getUserNameAttribute();
     }
 
     /** {@inheritDoc} */
     @Override
     public String getRealmIdentifier() {
-        // TODO Auto-generated method stub
         return getRealmNameAttribute();
     }
 
     /** {@inheritDoc} */
     @Override
     public String getUniqueUserIdentifier() {
-        // TODO Auto-generated method stub
         return getUserUniqueIdAttribute();
     }
 
     /** {@inheritDoc} */
     @Override
     public String getJsonWebKey() {
-        // TODO Auto-generated method stub
         return null;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean allowedAllAudiences() {
-        // TODO Auto-generated method stub
         return false;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean disableIssChecking() {
-        // TODO Auto-generated method stub
         return false;
     }
 
     /** {@inheritDoc} */
     @Override
     public String getJwkClientId() {
-        // TODO Auto-generated method stub
         return null;
     }
 
     /** {@inheritDoc} */
     @Override
     public String getJwkClientSecret() {
-        // TODO Auto-generated method stub
         return null;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public List<String> getForwardLoginParameter() {
+        return forwardLoginParameter;
+    }
+
+    @Override
+    public String getDiscoveryEndpointUrl() {
+        return this.discoveryEndpointUrl;
+    }
+
+    @Override
+    public HashMap<String, String> getAuthzRequestParams() {
+        return this.authzRequestParamMap;
+    }
+
+    @Override
+    public HashMap<String, String> getTokenRequestParams() {
+        return this.tokenRequestParamMap;
+    }
+
+    @Override
+    public HashMap<String, String> getUserinfoRequestParams() {
+        return this.userinfoRequestParamMap;
+    }
+
+    @Override
+    public HashMap<String, String> getJwkRequestParams() {
+        return this.jwkRequestParamMap;
+    }
+
+    private void populateCustomRequestParameterMap(HashMap<String, String> paramMapToPopulate, String[] configuredCustomRequestParams) {
+        SocialLoginService socialLoginService = this.socialLoginServiceRef.getService();
+        if (socialLoginService == null) {
+            return;
+        }
+        oidcConfigUtils.populateCustomRequestParameterMap(socialLoginService.getConfigAdmin(), paramMapToPopulate, configuredCustomRequestParams, KEY_PARAM_NAME, KEY_PARAM_VALUE);
     }
 
 }

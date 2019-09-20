@@ -1,14 +1,13 @@
-/*
- * IBM Confidential
+/*******************************************************************************
+ * Copyright (c) 2014 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
+ * which accompanies this distribution, and is available at
+ * http://www.eclipse.org/legal/epl-v10.html
  *
- * OCO Source Materials
- *
- * WLP Copyright IBM Corp. 2014
- *
- * The source code for this program is not published or otherwise divested
- * of its trade secrets, irrespective of what has been deposited with the
- * U.S. Copyright Office.
- */
+ * Contributors:
+ *     IBM Corporation - initial API and implementation
+ *******************************************************************************/
 package com.ibm.ws.ejbcontainer.session.async.fat;
 
 import static componenttest.custom.junit.runner.Mode.TestMode.FULL;
@@ -28,6 +27,7 @@ import org.junit.runner.RunWith;
 import com.ibm.websphere.simplicity.ShrinkHelper;
 
 import componenttest.annotation.ExpectedFFDC;
+import componenttest.annotation.SkipForRepeat;
 import componenttest.custom.junit.runner.FATRunner;
 import componenttest.custom.junit.runner.Mode;
 import componenttest.rules.repeater.FeatureReplacementAction;
@@ -106,10 +106,27 @@ public class AsyncErrTest extends FATServletClient {
      * Invalid bean type - Message Driven Bean
      */
     @Test
+    @SkipForRepeat(SkipForRepeat.EE8_FEATURES)
     @ExpectedFFDC({ "com.ibm.ws.container.service.state.StateChangeException", "com.ibm.ejs.container.EJBConfigurationException" })
     public void testMDB() throws Exception {
         server.setMarkToEndOfLog();
         server.setServerConfigurationFile("AsyncErr2BeanApp_server.xml");
+        server.waitForConfigUpdateInLogUsingMark(null, "");
+
+        assertNotNull("Message was not logged: CNTR0185E", server.waitForStringInLogUsingMark("CNTR0185E"));
+        assertNotNull("An exception did NOT occurred while starting the application AsyncErr2BeanApp. CWWKZ0002E message should have been found.",
+                      server.waitForStringInLogUsingMark("CWWKZ0002E"));
+    }
+
+    /**
+     * Invalid bean type - Message Driven Bean
+     */
+    @Test
+    @SkipForRepeat(SkipForRepeat.EE7_FEATURES)
+    @ExpectedFFDC({ "com.ibm.ws.container.service.state.StateChangeException", "com.ibm.ejs.container.EJBConfigurationException" })
+    public void testMDB_EE8() throws Exception {
+        server.setMarkToEndOfLog();
+        server.setServerConfigurationFile("AsyncErr2BeanApp_server_EE8.xml");
         server.waitForConfigUpdateInLogUsingMark(null, "");
 
         assertNotNull("Message was not logged: CNTR0185E", server.waitForStringInLogUsingMark("CNTR0185E"));

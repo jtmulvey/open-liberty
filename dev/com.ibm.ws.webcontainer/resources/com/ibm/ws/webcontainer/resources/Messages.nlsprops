@@ -17,7 +17,7 @@
 #
 #CMVCPATHNAME ws/code/webcontainer/src/com/ibm/ws/webcontainer/resources/Messages.nlsprops
 #COMPONENTPREFIX SRVE CWWWC
-#COMPONENTNAMEFOR SRVE Servlet Engine
+#COMPONENTNAMEFOR SRVE CWWWC Servlet Engine
 #ISMESSAGEFILE TRUE
 #NLS_MESSAGEFORMAT_VAR
 #NLS_ENCODING=UNICODE
@@ -1545,7 +1545,15 @@ programmatic.session.cookie.retrieve.cell.xml.failure.useraction=Verify that the
 
 AsyncContext.lock.already.held=SRVE8113W: Unable to obtain a lock.  Error processing has already been invoked by another thread.
 AsyncContext.lock.already.held.explanation=Error processing has already been invoked by another thread.
-AsyncContext.lock.already.held.useraction=Make sure the application can handle an exception here.  If it is necessary that this method return even if the call doesn't succeed, contact IBM support.
+AsyncContext.lock.already.held.useraction=Make sure the application can handle an exception here.  If it is necessary that this method return even if the call doesn't succeed, consider setting custom property throwexceptionwhenunabletocompleteordispatch to false.
+
+Cannot.set.session.cookie.Response.already.committed=SRVE8114W: WARNING: Cannot set session cookie. Response already committed.
+Cannot.set.session.cookie.Response.already.committed.explanation=After a response is committed, you cannot set the session cookie.
+Cannot.set.session.cookie.Response.already.committed.useraction=Verify whether this call is necessary. If you need to set the session cookie, set it before you commit the response.
+
+Cannot.set.status.Response.already.committed=SRVE8115W: WARNING: Cannot set status. Response already committed.
+Cannot.set.status.Response.already.committed.explanation=After a response is committed, you cannot set the response status code.
+Cannot.set.status.Response.already.committed.useraction=Verify whether this call is necessary. If you need to set the response status code, set it before you commit the response.
 
 servlet.with.same.name.already.exists=SRVE8500W: A servlet named {0} can not be dynamically added because a servlet configuration with the same name already exists.  
 servlet.with.same.name.already.exists.explanation=A servlet with the same name already exists for this application.
@@ -1577,6 +1585,15 @@ uncaught.exception.during.AsyncListener.onComplete.useraction=Verify the AsyncLi
 # 0200 - 0299 for Servlet 3.0
 # 0300 - 0399 for Servlet 3.1
 # 0400 - 0499 for Servlet 4
+
 #name.is.null=CWWWC0400E: An attribute name, or initial parameter name, is null.
 #name.is.null.explanation=This is an application error.  The name is null in either context getAttribute(), setAttribute(), getInitParameter(), or setInitParameter().
 #name.is.null.useraction=Update the attribute name, or initial parameter name, with a non-null value.
+
+# Notes for translation
+# {0} is the name of the ServletContainerInitializer that was being invoked at the time of the Exception.
+# {1} is the Exception that was thrown from the onStartup method of the ServletContainerInitializer {0}.
+# {2} is the application name that the ServletContainerInitializer is contained in.
+exception.occurred.while.running.ServletContainerInitializers.onStartup=CWWWC0001W: The [{0}] ServletContainerInitializer, located in the following application [{2}], produced the following error while invoking the onStartup method: [{1}]
+exception.occurred.while.running.ServletContainerInitializers.onStartup.explanation=An exception was thrown from a ServletContainerInitializer while invoking the onStartup method.
+exception.occurred.while.running.ServletContainerInitializers.onStartup.useraction=Review the Exception to determine the cause of the error.

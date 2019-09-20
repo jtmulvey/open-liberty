@@ -22,6 +22,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.microprofile.faulttolerance.ExecutionContext;
 import org.eclipse.microprofile.faulttolerance.exceptions.BulkheadException;
@@ -66,6 +67,7 @@ public class AsyncOuterExecutorImpl<R> extends SynchronousExecutorImpl<Future<R>
     private final BulkheadPolicy bulkheadPolicy;
     private final WSContextService contextService;
     private final ExecutorService executorService;
+    private final AtomicInteger inProgressExecutions;
 
     /**
      * The collection of contexts to capture under createThreadContext.
@@ -97,6 +99,7 @@ public class AsyncOuterExecutorImpl<R> extends SynchronousExecutorImpl<Future<R>
 
         this.bulkheadPolicy = bulkheadPolicy;
         this.contextService = contextService;
+        this.inProgressExecutions = new AtomicInteger(0);
 
         if (policyExecutorProvider != null) {
             //this is the normal case when running in Liberty
@@ -112,7 +115,7 @@ public class AsyncOuterExecutorImpl<R> extends SynchronousExecutorImpl<Future<R>
                 policyExecutor.maxConcurrency(maxThreads);
                 policyExecutor.maxQueueSize(queueSize);
                 metricRecorder.setBulkheadQueuePopulationSupplier(() -> queueSize - policyExecutor.queueCapacityRemaining());
-                metricRecorder.setBulkheadConcurentExecutionCountSupplier(policyExecutor::getRunningTaskCount);
+                metricRecorder.setBulkheadConcurentExecutionCountSupplier(inProgressExecutions::get);
             }
 
             this.executorService = policyExecutor;
@@ -166,6 +169,9 @@ public class AsyncOuterExecutorImpl<R> extends SynchronousExecutorImpl<Future<R>
                 throw new CircuitBreakerOpenException();
             }
         }
+
+        QueuedFuture<R> queuedFuture = new QueuedFuture<>(inProgressExecutions);
+        context.setQueuedFuture(queuedFuture);
 
         return super.execute(callable, executionContext);
     }
@@ -221,18 +227,18 @@ public class AsyncOuterExecutorImpl<R> extends SynchronousExecutorImpl<Future<R>
                 if (contextService != null) {
                     threadContext = contextService.captureThreadContext(new HashMap<String, String>(), THREAD_CONTEXT_PROVIDERS);
                 }
-                QueuedFuture<R> queuedFuture = new QueuedFuture<>(innerTask, executionContext, threadContext);
+                QueuedFuture<R> queuedFuture = (QueuedFuture<R>) executionContext.getQueuedFuture();
 
                 try {
                     //begin the queuedFuture execution
                     executionContext.onQueued();
-                    queuedFuture.start(executorService);
+                    queuedFuture.start(executorService, innerTask, threadContext);
                     metricRecorder.incrementBulkeadAcceptedCount();
                 } catch (RejectedExecutionException e) {
                     //if the execution was rejected then end the execution and throw a BulkheadException
                     //TODO there might not really have been a bulkhead?? but it's pretty unlikely that the execution would
                     //be rejected otherwise!
-                    executionContext.close();
+                    executionContext.end();
 
                     metricRecorder.incrementBulkheadRejectedCount();
 
@@ -276,7 +282,7 @@ public class AsyncOuterExecutorImpl<R> extends SynchronousExecutorImpl<Future<R>
      * without corrupting the internal state.
      *
      * @param context the execution context
-     * @param ex the exception which caused the failure
+     * @param ex      the exception which caused the failure
      */
     private void reportFailure(ExecutionContextImpl context, Exception ex) {
         CircuitBreakerImpl breaker = context.getCircuitBreaker();

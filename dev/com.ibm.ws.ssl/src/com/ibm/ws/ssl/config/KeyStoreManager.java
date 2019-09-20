@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005, 2009 IBM Corporation and others.
+ * Copyright (c) 2005, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -28,8 +28,11 @@ import java.security.PrivilegedExceptionAction;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -198,6 +201,20 @@ public class KeyStoreManager {
     public String[] getKeyStoreAliases() {
         Set<String> set = keyStoreMap.keySet();
         return set.toArray(new String[set.size()]);
+    }
+
+    /**
+     * @return total number of unique keystore entries in map. (Filter out duplicates representing same keystore).
+     */
+    public int getKeyStoreCount() {
+        // each keystore usually has two entries in map, it's name and it's service reference name.
+        // traverse the map to find the unique ones based on name, and return the count of that.
+        HashSet uniqueIds = new HashSet();
+        Iterator<Entry<String, WSKeyStore>> it = keyStoreMap.entrySet().iterator();
+        while (it.hasNext()) {
+            uniqueIds.add(it.next().getValue().getName());
+        }
+        return uniqueIds.size();
     }
 
     /**
@@ -614,6 +631,46 @@ public class KeyStoreManager {
 
                 if (ws != null)
                     ws.clearJavaKeyStore();
+            }
+        }
+    }
+
+    /***
+     * This method is used to clear the Java KeyStores held within the WSKeyStores
+     * in the KeyStoreMap based on the files
+     ***/
+    public void clearJavaKeyStoresFromKeyStoreMap(Collection<File> modifiedFiles) {
+        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
+            Tr.debug(tc, "clearJavaKeyStoresFromKeyStoreMap ", new Object[] { modifiedFiles });
+
+        String filePath = null;
+        String comparePath = null;
+        for (File modifiedKeystoreFile : modifiedFiles) {
+            try {
+                filePath = modifiedKeystoreFile.getCanonicalPath();
+                comparePath = filePath.replace('\\', '/');
+            } catch (IOException e) {
+                if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
+                    Tr.debug(tc, "Exception comparing file path.");
+                continue;
+            }
+
+            findKeyStoreInMapAndClear(comparePath);
+        }
+    }
+
+    /***
+     * This method is used to clear the Java KeyStores held within the WSKeyStores
+     * in the KeyStoreMap based on the files
+     ***/
+    public void findKeyStoreInMapAndClear(String keyStorePath) {
+        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
+            Tr.debug(tc, "findKeyStoreInMapAndClear ", new Object[] { keyStorePath });
+
+        for (Entry<String, WSKeyStore> entry : keyStoreMap.entrySet()) {
+            WSKeyStore ws = entry.getValue();
+            if (WSKeyStore.getCannonicalPath(ws.getLocation(), ws.getFileBased()).equals(keyStorePath)) {
+                ws.clearJavaKeyStore();
             }
         }
     }

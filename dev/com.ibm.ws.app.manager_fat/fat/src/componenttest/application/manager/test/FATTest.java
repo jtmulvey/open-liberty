@@ -54,6 +54,8 @@ import test.utils.TestUtils;
 public class FATTest extends AbstractAppManagerTest {
 
     /**  */
+    private static final String UPDATED_MESSAGE = "this is an updated test servlet.";
+    /**  */
 
     private static LibertyServer server = LibertyServerFactory.getLibertyServer("appManagerTestServer");
     private final Class<?> c = FATTest.class;
@@ -97,6 +99,8 @@ public class FATTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
             assertNotNull("The application testWarApplication did not appear to have started.",
                           server.waitForStringInLog("CWWKZ0001I.* testWarApplication"));
+            assertNotNull("The server did not report that the app would not be extracted",
+                          server.waitForStringInLog("CWWKZ0136I.* testWarApplication"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/testWarApplication/TestServlet");
             Log.info(c, method, "Calling test Application with URL=" + url.toString());
@@ -120,7 +124,7 @@ public class FATTest extends AbstractAppManagerTest {
             br = HttpUtils.getConnectionStream(con);
             line = br.readLine();
             assertTrue("The response did not contain the \'updated test servlet\'",
-                       line.contains("this is an updated test servlet."));
+                       line.contains(UPDATED_MESSAGE));
             con.disconnect();
 
             // remove file
@@ -150,6 +154,7 @@ public class FATTest extends AbstractAppManagerTest {
         } finally {
             //if we failed to delete file before, try to delete it now.
             pathsToCleanup.add(server.getServerRoot() + "/" + DROPINS_DIR);
+            server.stopServer("CWWKZ0014W");
         }
     }
 
@@ -172,6 +177,8 @@ public class FATTest extends AbstractAppManagerTest {
             // Wait for the application to be installed before proceeding
             assertNotNull("The testWarApplication application never came up",
                           server.waitForStringInLog("CWWKZ0001I.* testWarApplication"));
+            assertNotNull("The server did not report that the loose app was being used",
+                          server.waitForStringInLog("CWWKZ0135I.* testWarApplication"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + server.getHttpDefaultPort() + "/testWarApplication/TestServlet");
             Log.info(c, method, "Calling testWarApplication Application with URL=" + url.toString());
@@ -197,8 +204,17 @@ public class FATTest extends AbstractAppManagerTest {
             con = HttpUtils.getHttpConnection(url, HttpURLConnection.HTTP_OK, CONN_TIMEOUT);
             br = HttpUtils.getConnectionStream(con);
             line = br.readLine();
+            if (!line.contains(UPDATED_MESSAGE)) {
+                // It's possible that we're restarting twice because the file monitor picked up the changes in the middle
+                // of the unzip. If that happens, wait for another updated message and try again.
+                assertNotNull("The application testWarApplication did not appear to have been updated a second time.",
+                              server.waitForMultipleStringsInLogUsingMark(2, "CWWKZ0003I.* testWarApplication|CWWKZ0062I.* testWarApplication"));
+                con = HttpUtils.getHttpConnection(url, HttpURLConnection.HTTP_OK, CONN_TIMEOUT);
+                br = HttpUtils.getConnectionStream(con);
+                line = br.readLine();
+            }
             assertTrue("The response did not contain the \'updated test servlet\' : " + line,
-                       line.contains("this is an updated test servlet."));
+                       line.contains(UPDATED_MESSAGE));
 
             //add a file, only WEB-INF is monitored so add it in there
             server.setMarkToEndOfLog();
@@ -246,6 +262,7 @@ public class FATTest extends AbstractAppManagerTest {
             //if we failed to delete file before, try to delete it now.
             pathsToCleanup.add(server.getServerRoot() + "/" + DROPINS_DIR);
             pathsToCleanup.add(server.getServerRoot() + "/testWarApplication.war");
+            server.stopServer("CWWKZ0014W");
         }
     }
 
@@ -330,9 +347,12 @@ public class FATTest extends AbstractAppManagerTest {
             server.copyFileToLibertyServerRoot(PUBLISH_FILES, "tmp",
                                                SNOOP_WAR);
 
-            //unzip the application into the location so that we can easily modify the application in a minute
+            //unzip the application into a temp location so that we can easily modify the application in a minute
             TestUtils.unzip(new File(server.getServerRoot() + "/tmp/snoop.war"),
-                            new File(server.getServerRoot() + "/apps/snoop.war"));
+                            new File(server.getServerRoot() + "/tmp/unzip/snoop.war"));
+
+            // Copy the expanded snoop.war to "apps"
+            server.renameLibertyServerRootFile("tmp/unzip/snoop.war", "apps/snoop.war");
 
             //make sure the started message has been output twice by the server (once earlier, once now).
             assertNotNull("The snoop application never resumed running after being stopped",
@@ -423,9 +443,12 @@ public class FATTest extends AbstractAppManagerTest {
             server.copyFileToLibertyServerRoot(PUBLISH_FILES, "tmp",
                                                SNOOP_WAR);
 
-            //unzip the application into the location so that we can easily modify the application in a minute
+            //unzip the application into a temp location so that we can easily modify the application in a minute
             TestUtils.unzip(new File(server.getServerRoot() + "/tmp/snoop.war"),
-                            new File(server.getServerRoot() + "/apps/snoop.war"));
+                            new File(server.getServerRoot() + "/tmp/unzip/snoop.war"));
+
+            // Copy the expanded snoop.war to "apps"
+            server.renameLibertyServerRootFile("tmp/unzip/snoop.war", "apps/snoop.war");
 
             //make sure the started message has been output twice by the server (once earlier, once now).
             assertNotNull("The snoop application never resumed running after being stopped",
@@ -558,6 +581,8 @@ public class FATTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
             assertNotNull("The application testWarApplication did not appear to have started.",
                           server.waitForStringInLog("CWWKZ0001I.* testWarApplication"));
+            assertNotNull("The server did not report that the loose app was being used",
+                          server.waitForStringInLog("CWWKZ0134I.* testWarApplication"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/testWarApplication/TestServlet");
             Log.info(c, method, "Calling test Application with URL=" + url.toString());
@@ -566,7 +591,7 @@ public class FATTest extends AbstractAppManagerTest {
             BufferedReader br = HttpUtils.getConnectionStream(con);
             String line = br.readLine();
             assertTrue("The response did not contain the \'Test servlet\'",
-                       line.contains("this is an updated test servlet."));
+                       line.contains(UPDATED_MESSAGE));
             con.disconnect();
 
             //now we have confirmed it is excluding .txt file updates, add a non txt file and make sure it updates
@@ -607,6 +632,8 @@ public class FATTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
             assertNotNull("The application testWarApplication did not appear to have started.",
                           server.waitForStringInLog("CWWKZ0001I.* testWarApplication"));
+            assertNotNull("The server did not report that the loose app was being used",
+                          server.waitForStringInLog("CWWKZ0134I.* testWarApplication"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/testWarApplication/TestServlet");
             Log.info(c, method, "Calling test Application with URL=" + url.toString());
@@ -615,7 +642,7 @@ public class FATTest extends AbstractAppManagerTest {
             BufferedReader br = HttpUtils.getConnectionStream(con);
             String line = br.readLine();
             assertTrue("The response did not contain the \'Test servlet\'",
-                       line.contains("this is an updated test servlet."));
+                       line.contains(UPDATED_MESSAGE));
             con.disconnect();
 
             //now we have confirmed it is installed and running correctly, add an excluded file type, only web-inf is monitored so copy it to there
@@ -684,6 +711,8 @@ public class FATTest extends AbstractAppManagerTest {
                               server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
                 assertNotNull("The application testWarApplication did not appear to have started.",
                               server.waitForStringInLog("CWWKZ0001I.* testWarApplication"));
+                assertNotNull("The server did not report that the loose app was being used",
+                              server.waitForStringInLog("CWWKZ0134I.* testWarApplication"));
 
                 // make sure a call to the servlet works
                 URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/testWarApplication/TestServlet");
@@ -692,7 +721,7 @@ public class FATTest extends AbstractAppManagerTest {
                 BufferedReader br = HttpUtils.getConnectionStream(con);
                 String line = br.readLine();
                 assertTrue("The response did not contain the \'Test servlet\'",
-                           line.contains("this is an updated test servlet."));
+                           line.contains(UPDATED_MESSAGE));
                 con.disconnect();
             } finally {
                 // manually do this clean up because the stopServer command will try
@@ -902,6 +931,28 @@ public class FATTest extends AbstractAppManagerTest {
             fail("unexpected exception thrown. Expecting FileNotFoundException, got: " + e.getMessage());
         }
         server.stopServer("CWWKZ0014W");
+    }
+
+    @Test
+    public void testConfigureInvalidApplication() throws Exception {
+        final String method = testName.getMethodName();
+
+        try {
+            //load a new server xml
+            server.setServerConfigurationFile("/appsConfigured/server.xml");
+
+            server.copyFileToLibertyServerRoot("apps",
+                                               "/bootstrap.properties");
+            server.renameLibertyServerRootFile("apps/bootstrap.properties", "apps/snoop.war");
+            server.startServer(method + ".log");
+
+            // Because the required location attribute is missing, config will issue an error
+            assertNotNull("Invalid archive message not found", server.waitForStringInLog("CWWKM0101E.*"));
+            assertNotNull("Invalid resource message not found", server.waitForStringInLog("CWWKZ0021E.*"));
+        } finally {
+            pathsToCleanup.add(server.getServerRoot() + "/apps");
+            server.stopServer("CWWKZ0021E", "CWWKM0101E");
+        }
     }
 
     /**

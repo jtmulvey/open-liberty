@@ -83,7 +83,6 @@ public class H2StreamProcessor {
 
     // keep track of the state of this stream's headers
     private boolean headersCompleted = false;
-    private boolean continuationExpected = false;
 
     // the anticipated content length, as passed in from a content-length header
     private int expectedContentLength = -1;
@@ -215,7 +214,7 @@ public class H2StreamProcessor {
         }
         if (isStreamClosed()) {
             // stream is already closed
-            if (direction.equals(Constants.Direction.WRITING_OUT) && !this.continuationExpected) {
+            if (direction.equals(Constants.Direction.WRITING_OUT) && !muxLink.isWriteContinuationExpected()) {
                 if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                     Tr.debug(tc, "processNextFrame: stream is closed - cannot write out anything else on stream-id: " + myID);
                 }
@@ -273,6 +272,10 @@ public class H2StreamProcessor {
             // if looping to GOAWAY, then load it up now
             if (addFrame == ADDITIONAL_FRAME.GOAWAY) {
                 updateStreamState(StreamState.HALF_CLOSED_LOCAL);
+
+                // set link status, since we are in processNextFrame, no one else should be processing the link status
+                muxLink.setStatusLinkToGoAwaySending();
+
                 if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                     Tr.debug(tc, "processNextFrame: addFrame GOAWAY: HighestClientStreamId: " + muxLink.getHighestClientStreamId());
                 }
@@ -323,9 +326,8 @@ public class H2StreamProcessor {
                         addFrame = ADDITIONAL_FRAME.RESET;
                         addFrameException = e;
                     } else {
-                        // TODO: otherwise just close the stream/connection at the TCP Channel layer and clean up resources
+                        addFrame = ADDITIONAL_FRAME.NO;
                     }
-                    addFrame = ADDITIONAL_FRAME.NO;
                 }
                 continue;
             }
@@ -365,7 +367,7 @@ public class H2StreamProcessor {
                 }
 
                 // Header frames must be received in a contiguous chunk; cannot interleave across streams
-                if (isContinuationFrameExpected() && (frameType != FrameTypes.CONTINUATION || !this.continuationExpected)) {
+                if (muxLink.isContinuationExpected() && (frameType != FrameTypes.CONTINUATION || !muxLink.isContinuationExpected())) {
                     addFrame = ADDITIONAL_FRAME.GOAWAY;
                     addFrameException = new ProtocolException("Did not receive the expected continuation frame");
                     continue;
@@ -382,7 +384,6 @@ public class H2StreamProcessor {
                                 if (addFrame == ADDITIONAL_FRAME.FIRST_TIME) {
                                     addFrame = ADDITIONAL_FRAME.GOAWAY;
                                     addFrameException = e;
-                                    addFrame = ADDITIONAL_FRAME.NO;
                                 }
                                 continue;
                             }
@@ -394,7 +395,15 @@ public class H2StreamProcessor {
                             break;
 
                         case PING:
-                            processPINGFrame();
+                            try {
+                                processPINGFrame();
+                            } catch (Http2Exception e) {
+                                if (addFrame == ADDITIONAL_FRAME.FIRST_TIME) {
+                                    addFrame = ADDITIONAL_FRAME.GOAWAY;
+                                    addFrameException = e;
+                                }
+                                continue;
+                            }
                             break;
 
                         default:
@@ -516,13 +525,12 @@ public class H2StreamProcessor {
                     }
                     continue;
                 } catch (Http2Exception e) {
-                    if (addFrame == ADDITIONAL_FRAME.FIRST_TIME) {
+                    if ((addFrame == ADDITIONAL_FRAME.FIRST_TIME) || (addFrame == ADDITIONAL_FRAME.RESET)) {
                         if ((frameType == FrameTypes.DATA) && (e instanceof FlowControlException)) {
                             FCEToThrow = (FlowControlException) e;
                         }
                         if (e.isConnectionError()) {
                             addFrame = ADDITIONAL_FRAME.GOAWAY;
-                            addFrameException = e;
                         } else {
                             addFrame = ADDITIONAL_FRAME.RESET;
                         }
@@ -555,17 +563,21 @@ public class H2StreamProcessor {
 
         if (currentFrame.getFrameType() == FrameTypes.GOAWAY
             || currentFrame.getFrameType() == FrameTypes.RST_STREAM) {
-            writeFrameSync();
-            rstStreamSent = true;
-            this.updateStreamState(StreamState.CLOSED);
+            try {
+                writeFrameSync();
+            } finally {
+                rstStreamSent = true;
+                this.updateStreamState(StreamState.CLOSED);
 
-            if (currentFrame.getFrameType() == FrameTypes.GOAWAY) {
-                muxLink.closeConnectionLink(null);
-            }
-            if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-                Tr.debug(tc, "readWriteTransitionState: return: state: " + state);
+                if (currentFrame.getFrameType() == FrameTypes.GOAWAY) {
+                    muxLink.closeConnectionLink(null);
+                }
+                if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                    Tr.debug(tc, "readWriteTransitionState: return: state: " + state);
+                }
             }
             return;
+
         }
 
         switch (state) {
@@ -636,7 +648,7 @@ public class H2StreamProcessor {
      *
      * @throws FlowControlException
      */
-    private void processSETTINGSFrame() throws FlowControlException {
+    private void processSETTINGSFrame() throws FlowControlException, Http2Exception {
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
             Tr.debug(tc, "processSETTINGSFrame entry:\n" + currentFrame.toString());
         }
@@ -875,13 +887,18 @@ public class H2StreamProcessor {
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                 Tr.debug(tc, "writeSync caught (logically unexpected) FlowControlException: " + e);
             }
+        } catch (Http2Exception e) {
+            // we are closing anyway.
+            if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                Tr.debug(tc, "writeSync caught Http2Exception: " + e);
+            }
         } finally {
 
             muxLink.closeConnectionLink(null);
         }
     }
 
-    private void processPINGFrame() {
+    private void processPINGFrame() throws Http2Exception {
         if (currentFrame.flagAckSet()) {
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                 Tr.debug(tc, "processPINGFrame: ignore PING received with ACK set");
@@ -949,7 +966,7 @@ public class H2StreamProcessor {
                     processCompleteHeaders(false);
                     setHeadersComplete();
                 } else {
-                    setContinuationFrameExpected(true);
+                    muxLink.setContinuationExpected(true);
                 }
 
                 if (currentFrame.flagEndStreamSet()) {
@@ -971,7 +988,7 @@ public class H2StreamProcessor {
         }
     }
 
-    private void processOpen(Constants.Direction direction) throws ProtocolException, FlowControlException, CompressionException {
+    private void processOpen(Constants.Direction direction) throws ProtocolException, FlowControlException, CompressionException, Http2Exception {
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
             Tr.debug(tc, "processOpen entry: stream " + myID);
         }
@@ -988,14 +1005,14 @@ public class H2StreamProcessor {
                 // if this is a header frame, it must be trailer data
                 getHeadersFromFrame();
                 if (currentFrame.flagEndHeadersSet()) {
-                    setContinuationFrameExpected(false);
+                    muxLink.setContinuationExpected(false);
                     processCompleteHeaders(false);
                     setHeadersComplete();
                     if (currentFrame.flagEndStreamSet()) {
                         setReadyForRead();
                     }
                 } else {
-                    setContinuationFrameExpected(true);
+                    muxLink.setContinuationExpected(true);
                 }
             }
             if (currentFrame.flagEndStreamSet()) {
@@ -1039,7 +1056,7 @@ public class H2StreamProcessor {
     /**
      * @param direction
      */
-    private void processHalfClosedLocal(Constants.Direction direction) throws FlowControlException {
+    private void processHalfClosedLocal(Constants.Direction direction) throws FlowControlException, Http2Exception {
         // A stream transitions from this state to "closed" when a frame that
         // contains an END_STREAM flag is received or when either peer sends
         // a RST_STREAM frame.
@@ -1061,7 +1078,7 @@ public class H2StreamProcessor {
      * @throws CompressionException
      * @throws ProtocolException
      */
-    private void processHalfClosedRemote(Constants.Direction direction) throws FlowControlException, CompressionException, ProtocolException {
+    private void processHalfClosedRemote(Constants.Direction direction) throws FlowControlException, CompressionException, ProtocolException, Http2Exception {
         // A stream can transition from this state to "closed" by sending a
         // frame that contains an END_STREAM flag or when either peer sends a
         // RST_STREAM frame.
@@ -1069,12 +1086,12 @@ public class H2StreamProcessor {
             boolean writeCompleted = writeFrameSync();
             if (frameType == FrameTypes.HEADERS || frameType == FrameTypes.CONTINUATION) {
                 if (currentFrame.flagEndHeadersSet()) {
-                    setContinuationFrameExpected(false);
+                    muxLink.setWriteContinuationExpected(false);
                 } else {
-                    setContinuationFrameExpected(true);
+                    muxLink.setWriteContinuationExpected(true);
                 }
             }
-            if ((currentFrame.getFrameType() == FrameTypes.RST_STREAM || currentFrame.flagEndStreamSet() && !continuationExpected)
+            if ((currentFrame.getFrameType() == FrameTypes.RST_STREAM || currentFrame.flagEndStreamSet() && !muxLink.isWriteContinuationExpected())
                 && writeCompleted) {
                 endStream = true;
                 updateStreamState(StreamState.CLOSED);
@@ -1102,7 +1119,7 @@ public class H2StreamProcessor {
     /**
      * @param direction
      */
-    private void processReservedLocal(Constants.Direction direction) throws FlowControlException {
+    private void processReservedLocal(Constants.Direction direction) throws FlowControlException, Http2Exception {
         if (direction == Constants.Direction.WRITING_OUT) {
             if (currentFrame.getFrameType() == FrameTypes.HEADERS || currentFrame.getFrameType() == FrameTypes.CONTINUATION) {
                 if (currentFrame.flagEndHeadersSet()) {
@@ -1256,7 +1273,7 @@ public class H2StreamProcessor {
                     throw new ProtocolException("CONTINUATION Frame Received in the wrong state of: " + state);
                 } else if (state == StreamState.CLOSED) {
                     throw new StreamClosedException("CONTINUATION Frame Received in the wrong state of: " + state);
-                } else if (!isContinuationFrameExpected()) {
+                } else if (!muxLink.isContinuationExpected()) {
                     throw new ProtocolException("CONTINUATION Frame Received when not in a Continuation State");
                 } else if (isConnectStream) {
                     ProtocolException pe = new ProtocolException("CONTINUATION frame received on a CONNECT stream");
@@ -1302,7 +1319,7 @@ public class H2StreamProcessor {
             case PRIORITY:
                 // (spec) The PRIORITY frame can be sent on a stream in any state, though it
                 // cannot be sent between consecutive frames that comprise a single header block
-                if (isContinuationFrameExpected()) {
+                if (muxLink.isWriteContinuationExpected()) {
                     // in a continuation state
                     throw new ProtocolException("PRIORITY Frame sent when in a Continuation State of: " + state);
                 }
@@ -1331,7 +1348,7 @@ public class H2StreamProcessor {
                 break;
 
             case CONTINUATION:
-                if (!isContinuationFrameExpected()) {
+                if (!muxLink.isWriteContinuationExpected()) {
                     // not in a continuation state
                     throw new ProtocolException("CONTINUATION Frame sent when not in a Continuation State");
                 }
@@ -1351,16 +1368,7 @@ public class H2StreamProcessor {
             Tr.debug(tc, "completed headers have been received stream " + myID);
         }
         headersCompleted = true;
-        setContinuationFrameExpected(false);
-    }
-
-    public boolean isContinuationFrameExpected() {
-        return muxLink.isContinuationExpected();
-    }
-
-    public void setContinuationFrameExpected(boolean expected) {
-        muxLink.setContinuationExpected(expected);
-        this.continuationExpected = expected;
+        muxLink.setContinuationExpected(false);
     }
 
     /**
@@ -1484,7 +1492,8 @@ public class H2StreamProcessor {
             // only set headers on the link once
             if ((isPush || !processTrailerHeaders) && h2HttpInboundLinkWrap.getHeadersLength() == 0) {
                 if (!isValidH2Request(pseudoHeaders)) {
-                    this.setContinuationFrameExpected(false);
+                    muxLink.setContinuationExpected(false);
+                    muxLink.setWriteContinuationExpected(false);
                     ProtocolException e = new ProtocolException("An invalid request was received on stream-id: " + myID);
                     e.setConnectionError(false); // mark this as a stream error so we'll generate an RST_STREAM
                     throw e;
@@ -1551,7 +1560,8 @@ public class H2StreamProcessor {
             buf.put(bytes);
         }
         buf.flip();
-        if (expectedContentLength != -1 && buf.limit() != expectedContentLength) {
+        int actualContentLength = buf.limit();
+        if (expectedContentLength != -1 && actualContentLength != expectedContentLength) {
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                 Tr.debug(tc, "processCompleteData release buffer and throw ProtocolException");
             }
@@ -1559,7 +1569,13 @@ public class H2StreamProcessor {
             ProtocolException pe = new ProtocolException("content-length header did not match the expected amount of data received");
             pe.setConnectionError(false); // stream error
             throw pe;
+        } else if (expectedContentLength == -1 && actualContentLength > 0) {
+            if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                Tr.debug(tc, "processCompleteData no content-length header was sent for stream-id: " + streamId() + " but it received "
+                             + actualContentLength + " bytes of of body data");
+            }
         }
+        this.h2HttpInboundLinkWrap.setH2ContentLength(actualContentLength);
         moveDataIntoReadBufferArray(buf);
     }
 
@@ -1740,7 +1756,7 @@ public class H2StreamProcessor {
      *
      * @return true if a write request was successfully passed on to the underlying link
      */
-    private boolean writeFrameSync() throws FlowControlException {
+    private boolean writeFrameSync() throws FlowControlException, Http2Exception {
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
             Tr.debug(tc, "writeFrameSync entry: stream: " + myID);
         }
@@ -1779,7 +1795,10 @@ public class H2StreamProcessor {
                     // the flow control window is large enough to write the data frame
                     if (!timedOut) {
                         writeFrameBuffers = data.buildFrameArrayForWrite();
-                        muxLink.writeSync(null, writeFrameBuffers, data.getWriteFrameLength(), TCPRequestContext.NO_TIMEOUT,
+                        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                            Tr.debug(tc, "stream: " + myID + " write with default (60 second) timeout.");
+                        }
+                        muxLink.writeSync(null, writeFrameBuffers, data.getWriteFrameLength(), TCPRequestContext.USE_CHANNEL_TIMEOUT,
                                           data.getFrameType(), data.getPayloadLength(), myID);
 
                         streamWindowUpdateWriteLimit -= currentFrame.getPayloadLength();
@@ -1797,13 +1816,20 @@ public class H2StreamProcessor {
                 } else {
                     // this frame is not a data frame, and so it's not subject to flow control and we can write immediately
                     writeFrameBuffer = currentFrame.buildFrameForWrite();
-                    muxLink.writeSync(writeFrameBuffer, null, currentFrame.getWriteFrameLength(), TCPRequestContext.NO_TIMEOUT,
+                    if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                        Tr.debug(tc, "stream: " + myID + " write with default (60 second) timeout");
+                    }
+                    muxLink.writeSync(writeFrameBuffer, null, currentFrame.getWriteFrameLength(), TCPRequestContext.USE_CHANNEL_TIMEOUT,
                                       currentFrame.getFrameType(), currentFrame.getPayloadLength(), myID);
                 }
             } catch (IOException e) {
                 if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                     Tr.debug(tc, "writeFrameSync caught an IOException: " + e);
                 }
+
+                Http2Exception up = new Http2Exception(e.getMessage());
+                up.setConnectionError(true);
+                throw up;
 
             } catch (InterruptedException e) {
                 if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {

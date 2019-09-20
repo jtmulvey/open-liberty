@@ -128,28 +128,19 @@ public class JwKRetriever {
         this.keyLocation = keyLocation;
     }
 
-    //  public JwKRetriever(JwtConsumerConfig config) {
-    //      configId = config.getId();
-    //      sslConfigurationName = config.getSslRef();
-    //      jwkEndpointUrl = config.getJwkEndpointUrl();
-    //      jwkSet = config.getJwkSet();
-    //      hostNameVerificationEnabled = config.isHostNameVerificationEnabled();
-    //      
-    //  }
-
     /**
      * Either kid or x5t will work. But not both
      */
-    public PublicKey getPublicKeyFromJwk(String kid, String x5t)
+    public PublicKey getPublicKeyFromJwk(String kid, String x5t, boolean useSystemPropertiesForHttpClientConnections)
             throws PrivilegedActionException, IOException, KeyStoreException, InterruptedException {
-        return getPublicKeyFromJwk(kid, x5t, null);
+        return getPublicKeyFromJwk(kid, x5t, null, useSystemPropertiesForHttpClientConnections);
     }
 
     /**
      * Either kid, x5t, or use will work, but not all
      */
     @FFDCIgnore({ KeyStoreException.class })
-    public PublicKey getPublicKeyFromJwk(String kid, String x5t, String use)
+    public PublicKey getPublicKeyFromJwk(String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections)
             throws PrivilegedActionException, IOException, KeyStoreException, InterruptedException {
         PublicKey key = null;
         KeyStoreException errKeyStoreException = null;
@@ -158,7 +149,7 @@ public class JwKRetriever {
         boolean isHttp = remoteHttpCall(this.jwkEndpointUrl, this.publicKeyText, this.keyLocation);
         try {
             if (isHttp) {
-                key = this.getJwkRemote(kid, x5t, use);
+                key = this.getJwkRemote(kid, x5t, use , useSystemPropertiesForHttpClientConnections);
             } else {
                 key = this.getJwkLocal(kid, x5t, publicKeyText, keyLocation, use);
             }
@@ -210,63 +201,94 @@ public class JwKRetriever {
         }
         return isHttp;
     }
-
-    @FFDCIgnore({ PrivilegedActionException.class, Exception.class })
+    @FFDCIgnore({  Exception.class })
     protected PublicKey getPublicKeyFromFile(String location, String kid, String x5t, String use) {
         PublicKey publicKey = null;
         String keyString = null;
-        InputStream inputStream = null;
-
+        String classLoadingCacheSelector = null;
+        String fileSystemCacheSelector = null;
+        
+        File jwkFile = null;
         try {
-
-            final String keyFile;
+            // figure out which cache to use for jwk from classloading
+            classLoadingCacheSelector = Thread.currentThread().getContextClassLoader().toString() + location;
+            //figure out which cache to use for jwk from file system            
+            final String keyFile;                
             if (location.startsWith("file:")) {
                 URI uri = new URI(location);
                 keyFile = uri.getPath();
             } else {
                 keyFile = location;
-            }
-
-            try {
-                final File jwkFile = new File(keyFile);
-                inputStream = (FileInputStream) AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
-                    @Override
-                    public Object run() throws Exception {
-                        if (jwkFile.exists()) {
-                            return new FileInputStream(jwkFile);
-                        } else {
-                            return null;
-                        }
-                    }
-                });
-                locationUsed = jwkFile.getCanonicalPath();
-            } catch (PrivilegedActionException e1) {
-            }
-
-            if (inputStream == null) {
-                URL resourceURL = Thread.currentThread().getContextClassLoader().getResource(location);
-                if (resourceURL != null) {
-                    locationUsed = resourceURL.getPath();
-                    inputStream = resourceURL.openStream();
+            }                
+            jwkFile = new File(keyFile);
+            fileSystemCacheSelector = jwkFile.getCanonicalPath();              
+                  
+            synchronized (jwkSet) {                
+                publicKey = getJwkFromJWKSet(fileSystemCacheSelector, kid, x5t, use);  // try the cache.
+                if (publicKey == null) {                    
+                    publicKey = getJwkFromJWKSet(classLoadingCacheSelector, kid, x5t, use);  
                 }
-            }
-
-            if (inputStream != null) {
-                synchronized (jwkSet) {
-                    publicKey = getJwkFromJWKSet(locationUsed, kid, x5t, use);
-                    if (publicKey == null) {
-                        keyString = getKeyAsString(inputStream);
-                        parseJwk(keyString, null, jwkSet, sigAlg);
+                if (publicKey == null) {  // cache miss, read the jwk if we can,  &  update locationUsed
+                    InputStream is = getInputStream(jwkFile, fileSystemCacheSelector,  location, classLoadingCacheSelector);  
+                    if(is != null) {
+                        keyString = getKeyAsString(is);
+                        parseJwk(keyString, null, jwkSet, sigAlg); // also adds entry to cache.
                         publicKey = getJwkFromJWKSet(locationUsed, kid, x5t, use);
                     }
                 }
             }
+            
         } catch (Exception e2) {
             if (tc.isDebugEnabled()) {
                 Tr.debug(tc, "Caught exception opening file from location [" + location + "]: " + e2.getMessage());
             }
         }
         return publicKey;
+    }
+    
+    /**
+     * open an input stream to either a file on the file system or a url on the classpath.
+     * Update the locationUsed class variable to note where we got the stream from so results of reading it can be cached properly
+     *
+     */
+    @FFDCIgnore({ PrivilegedActionException.class })
+    protected InputStream getInputStream(final File f, String fileSystemSelector,  String location, String classLoadingSelector ) throws IOException {      
+        // check file system first like we used to do
+        if (f != null) {
+            InputStream is = null;
+            try { 
+                is = (FileInputStream) AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
+                    @Override
+                    public Object run() throws Exception {
+                        if (f.exists()) {
+                            return new FileInputStream(f);
+                        } else {
+                            return null;
+                        }
+                    }
+                });
+                
+            } catch (PrivilegedActionException e1) {
+            }
+            if (is != null) { 
+                locationUsed = fileSystemSelector;
+                if (tc.isDebugEnabled()) {
+                    Tr.debug(tc, "input stream obtained from file system and locationUsed set to: "+ locationUsed);
+                }
+                return is;
+            }
+        }        
+        // do the expensive classpath search
+        // performant: we're avoiding calling getResource if entry was previously cached.
+        URL u = Thread.currentThread().getContextClassLoader().getResource(location);  
+        locationUsed = classLoadingSelector;
+        if (tc.isDebugEnabled()) {
+            Tr.debug(tc, "input stream obtained from classloader and  locationUsed set to: "+ locationUsed);
+        }
+        if (u != null) {            
+            return u.openStream();
+        }
+        return null;
     }
 
     protected PublicKey getJwkLocal(String kid, String x5t, String publicKeyText, String location, String use) {
@@ -312,7 +334,7 @@ public class JwKRetriever {
     }
 
     @FFDCIgnore({ KeyStoreException.class })
-    protected PublicKey getJwkRemote(String kid, String x5t, String use) throws KeyStoreException, InterruptedException {
+    protected PublicKey getJwkRemote(String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections) throws KeyStoreException, InterruptedException {
         locationUsed = jwkEndpointUrl;
         if (locationUsed == null) {
             locationUsed = keyLocation;
@@ -325,7 +347,7 @@ public class JwKRetriever {
             synchronized (jwkSet) {
                 key = getJwkFromJWKSet(locationUsed, kid, x5t, use);
                 if (key == null) {
-                    key = doJwkRemote(kid, x5t, use);
+                    key = doJwkRemote(kid, x5t, use, useSystemPropertiesForHttpClientConnections);
                 }
             }
         } catch (KeyStoreException e) {
@@ -335,7 +357,7 @@ public class JwKRetriever {
     }
 
     @FFDCIgnore({ Exception.class, KeyStoreException.class })
-    protected PublicKey doJwkRemote(String kid, String x5t, String use) throws KeyStoreException {
+    protected PublicKey doJwkRemote(String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections) throws KeyStoreException {
 
         String jsonString = null;
         locationUsed = jwkEndpointUrl;
@@ -345,8 +367,8 @@ public class JwKRetriever {
 
         try {
             // TODO - validate url
-            SSLSocketFactory sslSocketFactory = getSSLSocketFactory(locationUsed, sslConfigurationName, sslSupport);
-            HttpClient client = createHTTPClient(sslSocketFactory, locationUsed, hostNameVerificationEnabled);
+            SSLSocketFactory sslSocketFactory = getSSLSocketFactory(locationUsed, sslConfigurationName, sslSupport);            
+            HttpClient client = createHTTPClient(sslSocketFactory, locationUsed, hostNameVerificationEnabled, useSystemPropertiesForHttpClientConnections);
             jsonString = getHTTPRequestAsString(client, locationUsed);
             boolean bJwk = parseJwk(jsonString, null, jwkSet, sigAlg);
 
@@ -663,7 +685,7 @@ public class JwKRetriever {
         return message;
     }
 
-    public HttpClient createHTTPClient(SSLSocketFactory sslSocketFactory, String url, boolean isHostnameVerification) {
+    public HttpClient createHTTPClient(SSLSocketFactory sslSocketFactory, String url, boolean isHostnameVerification, boolean useSystemPropertiesForHttpClientConnections) {
 
         HttpClient client = null;
         boolean addBasicAuthHeader = false;
@@ -677,13 +699,17 @@ public class JwKRetriever {
             credentialsProvider = createCredentialsProvider();
         }
 
-        client = createHttpClient(url.startsWith("https:"), isHostnameVerification, sslSocketFactory, addBasicAuthHeader, credentialsProvider);
+        client = createHttpClient(url.startsWith("https:"), isHostnameVerification, sslSocketFactory, addBasicAuthHeader, credentialsProvider, useSystemPropertiesForHttpClientConnections);
         return client;
 
     }
+    
+    protected HttpClientBuilder getBuilder(boolean useSystemPropertiesForHttpClientConnections)
+    {        
+        return useSystemPropertiesForHttpClientConnections ? HttpClientBuilder.create().useSystemProperties() : HttpClientBuilder.create();
+    }
 
-    private HttpClient createHttpClient(boolean isSecure, boolean isHostnameVerification, SSLSocketFactory sslSocketFactory, boolean addBasicAuthHeader, BasicCredentialsProvider credentialsProvider) {
-
+    private HttpClient createHttpClient(boolean isSecure, boolean isHostnameVerification, SSLSocketFactory sslSocketFactory, boolean addBasicAuthHeader, BasicCredentialsProvider credentialsProvider, boolean useSystemPropertiesForHttpClientConnections) {       
         HttpClient client = null;
         if (isSecure) {
             SSLConnectionSocketFactory connectionFactory = null;
@@ -693,15 +719,15 @@ public class JwKRetriever {
                 connectionFactory = new SSLConnectionSocketFactory(sslSocketFactory, new StrictHostnameVerifier());
             }
             if (addBasicAuthHeader) {
-                client = HttpClientBuilder.create().setDefaultCredentialsProvider(credentialsProvider).setSSLSocketFactory(connectionFactory).build();
+                client = getBuilder(useSystemPropertiesForHttpClientConnections).setDefaultCredentialsProvider(credentialsProvider).setSSLSocketFactory(connectionFactory).build();
             } else {
-                client = HttpClientBuilder.create().setSSLSocketFactory(connectionFactory).build();
+                client = getBuilder(useSystemPropertiesForHttpClientConnections).setSSLSocketFactory(connectionFactory).build();
             }
         } else {
             if (addBasicAuthHeader) {
-                client = HttpClientBuilder.create().setDefaultCredentialsProvider(credentialsProvider).build();
+                client = getBuilder(useSystemPropertiesForHttpClientConnections).setDefaultCredentialsProvider(credentialsProvider).build();
             } else {
-                client = HttpClientBuilder.create().build();
+                client = getBuilder(useSystemPropertiesForHttpClientConnections).build();
             }
         }
         return client;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2011, 2018 IBM Corporation and others.
+ * Copyright (c) 2011, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,9 +18,12 @@ import java.sql.Driver;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLNonTransientException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Hashtable;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Observable;
@@ -183,6 +186,14 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
      * Indicates if the JDBC driver is Derby Embedded.
      */
     private boolean isDerbyEmbedded;
+    
+    /**
+     * Indicates if the JDBC driver is Oracle UCP.
+     */
+    private boolean isUCP;
+    
+    private boolean sentUCPConnMgrPropsIgnoredInfoMessage;
+    private boolean sentUCPDataSourcePropsIgnoredInfoMessage;
 
     /**
      * JDBC driver service
@@ -390,7 +401,6 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
     public final String getJNDIName() {
         return dsConfigRef.get().jndiName;
     }
-
     /**
      * Returns the managed connection factory.
      * 
@@ -455,7 +465,10 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
                 } else if (Driver.class.getName().equals(type)) {
                     ifc = Driver.class;
                     String url = vProps.getProperty("URL", vProps.getProperty("url"));
-                    vendorImpl = jdbcDriverSvc.getDriver(url, vProps, id);
+                    if (url != null && !"".equals(url)) {
+                        vendorImpl = jdbcDriverSvc.getDriver(url, vProps, id);
+                    } else 
+                        throw new SQLNonTransientException(AdapterUtil.getNLSMessage("DSRA4014.URL.for.Driver.missing", jndiName == null ? id : jndiName));
                 } else
                     throw new SQLNonTransientException(ConnectorService.getMessage("MISSING_RESOURCE_J2CA8030", DSConfig.TYPE, type, DATASOURCE, jndiName == null ? id : jndiName));
 
@@ -560,6 +573,8 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
             // Get the connection manager service for this data source. If none is configured, then use defaults.
             conMgrSvc = (ConnectionManagerService) priv.locateService(componentContext,CONNECTION_MANAGER);
 
+            boolean createdDefaultConnectionManager = false;
+            
             if (conMgrSvc == null) {
                 if (wProps.containsKey(DSConfig.CONNECTION_MANAGER_REF)) {
                     SQLNonTransientException failure = connectorSvc.ignoreWarnOrFail(tc, null, SQLNonTransientException.class, "MISSING_RESOURCE_J2CA8030",
@@ -568,6 +583,8 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
                         throw failure;
                 }
                 conMgrSvc = ConnectionManagerService.createDefaultService(id);
+                createdDefaultConnectionManager = true;
+
             }
             conMgrSvc.addObserver(this);
 
@@ -607,7 +624,10 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
             } else if (Driver.class.getName().equals(type)) {
                 ifc = Driver.class;
                 String url = vProps.getProperty("URL", vProps.getProperty("url"));
-                vendorImpl = jdbcDriverSvc.getDriver(url, vProps, id);
+                if (url != null && !"".equals(url)) {
+                    vendorImpl = jdbcDriverSvc.getDriver(url, vProps, id);
+                } else 
+                    throw new SQLNonTransientException(AdapterUtil.getNLSMessage("DSRA4014.URL.for.Driver.missing", jndiName == null ? id : jndiName));
             } else
                 throw new SQLNonTransientException(ConnectorService.getMessage("MISSING_RESOURCE_J2CA8030", DSConfig.TYPE, type, DATASOURCE, jndiName == null ? id : jndiName));
 
@@ -639,6 +659,16 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
                     if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
                         Tr.debug(this, tc, "ref count for database shutdown", dbName, embDerbyRefCount);
                 }
+            }
+
+            isUCP = vendorImplClassName.startsWith("oracle.ucp");
+            if (isUCP) {
+                if (!createdDefaultConnectionManager && !sentUCPConnMgrPropsIgnoredInfoMessage) {
+                    Set<String> connMgrPropsAllowed = Collections.singleton("enableSharingForDirectLookups");
+                    Tr.info(tc, "DSRA4013.ignored.connection.manager.config.used", connMgrPropsAllowed);
+                    sentUCPConnMgrPropsIgnoredInfoMessage = true;
+                }
+                updateConfigForUCP(wProps);
             }
 
             dsConfigRef.set(new DSConfig(id, jndiName, wProps, vProps, connectorSvc));
@@ -733,9 +763,16 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
                     // Reinitialize with a new MCF and let the old connections go away via agedTimeout or claim victim
                     // Defer the destroy until later, unless we are using Derby Embedded, in which case we need
                     // to issue a shutdown of the Derby database in order to free it up for other class loaders.
-                    destroyConnectionFactories(isDerbyEmbedded);
+                    // Destroy now if switching to/from UCP to ensure that the connection manager is initialized
+                    // with the proper properties to disable/enable Liberty connection pooling
+                    isUCP = isUCP || "com.ibm.ws.jdbc.dataSource.properties.oracle.ucp".equals(newProperties.get("properties.0.config.referenceType"));
+                    destroyConnectionFactories(isDerbyEmbedded || isUCP);
                 } else {
                     parseIsolationLevel(wProps, vendorImplClassName);
+                    
+                    if(isUCP) {
+                        updateConfigForUCP(wProps);
+                    }
                     
                     // Swap the reference to the configuration - the WAS data source will start honoring it
                     dsConfigRef.set(new DSConfig(config, wProps));
@@ -766,6 +803,8 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
         NavigableMap<String, Object> wProps = new TreeMap<String, Object>();
 
         String vPropsPID = null;
+        
+        boolean recommendAuthAlias = false;
         for (Map.Entry<String, Object> entry : configProps.entrySet()) {
             String key = entry.getKey();
             Object value = entry.getValue();
@@ -793,7 +832,7 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
                             value = PasswordUtil.getCryptoAlgorithm(password) == null ? password : PasswordUtil.decode(password);
                         }
                         if (DataSourceDef.password.name().equals(key))
-                            ConnectorService.logMessage(Level.INFO, "RECOMMEND_AUTH_ALIAS_J2CA8050", id);
+                            recommendAuthAlias = true;
                     } else if (trace && tc.isDebugEnabled()) {
                         if(key.toLowerCase().equals("url")) {
                             if(value instanceof String)
@@ -808,6 +847,11 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
             } else if (key.indexOf('.') == -1 && !WPROPS_TO_SKIP.contains(key))
                 wProps.put(key, value);
         }
+        
+        //Don't send out auth alias recommendation message with UCP since it may be required to set the 
+        //user and password as ds props
+        if(recommendAuthAlias && !"com.ibm.ws.jdbc.dataSource.properties.oracle.ucp".equals(vPropsPID))
+            ConnectorService.logMessage(Level.INFO, "RECOMMEND_AUTH_ALIAS_J2CA8050", id);
 
         if (vPropsPID == null)
             vProps.setFactoryPID(PropertyService.FACTORY_PID);
@@ -866,19 +910,6 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
             Tr.debug(this, tc, "setDriver", ref);
     }
     
-    /**
-     * Declarative services method to set the JAASLoginContextEntry.
-     */
-    protected void setJaasLoginContextEntry(ServiceReference<?> ref) {
-        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-            Tr.debug(this, tc, "setJaasLoginContextEntry", ref);
-        }
-
-        if (ref != null) {
-            jaasLoginContextEntryName = (String) ref.getProperty("name");
-        }
-    }
-
     protected void setJdbcRuntimeVersion(JDBCRuntimeVersion ref) {
         jdbcRuntime = ref;
     }
@@ -968,16 +999,6 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
             Tr.debug(this, tc, "unsetDriver", ref);
     }
     
-    /**
-     * Declarative services method to unset the JAASLoginContextEntry.
-     */
-    protected void unsetJaasLoginContextEntry(ServiceReference<com.ibm.ws.security.jaas.common.JAASLoginContextEntry> svc) {
-        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-            Tr.debug(this, tc, "unsetJaasLoginContextEntry", svc);
-        }
-        jaasLoginContextEntryName = null;
-    }
-
     protected void unsetJdbcRuntimeVersion(JDBCRuntimeVersion ref) {
         jdbcRuntime = null;
     }
@@ -998,5 +1019,63 @@ public class DataSourceService extends AbstractConnectionFactoryService implemen
     @Override
     public void setMQQueueManager(Serializable xaresinfo) throws Exception {
         // no-op, not implemented for data sources        
+    }
+    
+    /**
+     * This method contains the common config related tasks that need to be done when the DataSourceService is 
+     * initialized or modified. It outputs an informational message for connection manager and datasource properties
+     * that will be ignored and sets the proper values for the ignored DataSource properties: statementCacheSize 
+     * and ValidationTimeout.
+     * @param wProps 
+     */
+    private void updateConfigForUCP(NavigableMap<String, Object> wProps) {
+        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
+            Tr.debug(this, tc, "Updating config for UCP");
+        
+        if (wProps.remove(DSConfig.VALIDATION_TIMEOUT) != null) {
+            if(!sentUCPDataSourcePropsIgnoredInfoMessage) {     
+                Set<String> dsPropsIgnored = new LinkedHashSet<String>();
+                dsPropsIgnored.add("statementCacheSize");
+                dsPropsIgnored.add("validationTimeout");
+                Tr.info(tc, "DSRA4012.ignored.datasource.config.used", dsPropsIgnored);
+                sentUCPDataSourcePropsIgnoredInfoMessage = true;
+            }
+        }
+        
+        Object statementCacheSize = wProps.get(DSConfig.STATEMENT_CACHE_SIZE);
+        if(statementCacheSize != null) {
+            long numericVal = -1;
+            if (statementCacheSize instanceof Number)
+                numericVal = ((Number) statementCacheSize).longValue();
+            else
+                try {
+                    numericVal = Integer.parseInt((String) statementCacheSize);
+                } catch (Exception x) {
+                    //don't need to surface this exception since we are ignoring the config anyway
+                    if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
+                        Tr.debug(this, tc, "Caught the following exception parsing statement cache size: " + x);
+                }
+            if(numericVal != 0) {
+                wProps.put(DSConfig.STATEMENT_CACHE_SIZE, 0);
+                //To avoid always sending ignored ds config message, don't send it for a value of 10 since that's the default
+                if(numericVal != 10) {
+                    if(!sentUCPDataSourcePropsIgnoredInfoMessage) {
+                        Set<String> dsPropsIgnored = new LinkedHashSet<String>();
+                        dsPropsIgnored.add("statementCacheSize");
+                        dsPropsIgnored.add("validationTimeout");
+                        Tr.info(tc, "DSRA4012.ignored.datasource.config.used", dsPropsIgnored);
+                        sentUCPDataSourcePropsIgnoredInfoMessage = true;
+                    }
+                }
+            }
+        } else {
+            //this shouldn't be possible since statementCacheSize has a default of 10
+            wProps.put(DSConfig.STATEMENT_CACHE_SIZE, 0);
+        }
+    }
+    
+    @Override
+    public boolean isLibertyConnectionPoolingDisabled() {
+        return isUCP;
     }
 }

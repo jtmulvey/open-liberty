@@ -17,7 +17,7 @@
 #
 #CMVCPATHNAME ws/code/webcontainer/src/com/ibm/ws/webcontainer/resources/Messages.nlsprops
 #COMPONENTPREFIX SRVE CWWWC
-#COMPONENTNAMEFOR SRVE Servlet Engine
+#COMPONENTNAMEFOR SRVE CWWWC Servlet Engine
 #ISMESSAGEFILE TRUE
 #NLS_MESSAGEFORMAT_VAR
 #NLS_ENCODING=UNICODE
@@ -1545,7 +1545,15 @@ programmatic.session.cookie.retrieve.cell.xml.failure.useraction=Verifique que c
 
 AsyncContext.lock.already.held=SRVE8113W: No se puede obtener un bloqueo.  Otra hebra ya ha invocado el procesamiento de errores.
 AsyncContext.lock.already.held.explanation=Otra hebra ya ha invocado el procesamiento de errores.
-AsyncContext.lock.already.held.useraction=Aseg\u00farese de que la aplicaci\u00f3n puede manejar una excepci\u00f3n aqu\u00ed.  Si es necesario que se devuelva este m\u00e9todo aunque no se realice la llamada, p\u00f3ngase en contacto con el soporte de IBM.
+AsyncContext.lock.already.held.useraction=Aseg\u00farese de que la aplicaci\u00f3n puede manejar una excepci\u00f3n aqu\u00ed. Si es necesario que se devuelva este m\u00e9todo aunque no se realice la llamada, considere establecer la propiedad personalizada throwexceptionwhenunabletocompleteordispatch en false.
+
+Cannot.set.session.cookie.Response.already.committed=SRVE8114W: AVISO: No se puede establecer la cookie de sesi\u00f3n. Ya se ha confirmado la respuesta.
+Cannot.set.session.cookie.Response.already.committed.explanation=Una vez confirmada la respuesta, ya no se puede establecer la cookie de sesi\u00f3n.
+Cannot.set.session.cookie.Response.already.committed.useraction=Verifique si esta llamada es necesaria. Si debe establecer la cookie de sesi\u00f3n, establ\u00e9zcala antes de confirmar la respuesta.
+
+Cannot.set.status.Response.already.committed=SRVE8115W: AVISO: No se puede establecer el estado. Ya se ha confirmado la respuesta.
+Cannot.set.status.Response.already.committed.explanation=Una vez confirmada la respuesta, ya no se puede establecer el c\u00f3digo de estado de respuesta.
+Cannot.set.status.Response.already.committed.useraction=Verifique si esta llamada es necesaria. Si debe establecer el c\u00f3digo de estado de respuesta, establ\u00e9zcalo antes de confirmar la respuesta.
 
 servlet.with.same.name.already.exists=SRVE8500W: El servlet denominado {0} no se puede a\u00f1adir din\u00e1micamente porque ya existe una configuraci\u00f3n de servlet con el mismo nombre.  
 servlet.with.same.name.already.exists.explanation=Ya existe un servlet con el mismo nombre en esta aplicaci\u00f3n.
@@ -1577,6 +1585,15 @@ uncaught.exception.during.AsyncListener.onComplete.useraction=Verifique en el c\
 # 0200 - 0299 for Servlet 3.0
 # 0300 - 0399 for Servlet 3.1
 # 0400 - 0499 for Servlet 4
+
 #name.is.null=CWWWC0400E: An attribute name, or initial parameter name, is null.
 #name.is.null.explanation=This is an application error.  The name is null in either context getAttribute(), setAttribute(), getInitParameter(), or setInitParameter().
 #name.is.null.useraction=Update the attribute name, or initial parameter name, with a non-null value.
+
+# Notes for translation
+# {0} is the name of the ServletContainerInitializer that was being invoked at the time of the Exception.
+# {1} is the Exception that was thrown from the onStartup method of the ServletContainerInitializer {0}.
+# {2} is the application name that the ServletContainerInitializer is contained in.
+exception.occurred.while.running.ServletContainerInitializers.onStartup=CWWWC0001W: [{0}] ServletContainerInitializer, situado en la siguiente aplicaci\u00f3n [{2}], ha generado el siguiente error al invocar el m\u00e9todo onStartup: [{1}]
+exception.occurred.while.running.ServletContainerInitializers.onStartup.explanation=Se ha generado una excepci\u00f3n desde ServletContainerInitializer al invocar el m\u00e9todo onStartup.
+exception.occurred.while.running.ServletContainerInitializers.onStartup.useraction=Revise la excepci\u00f3n para determinar la causa del error.

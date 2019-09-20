@@ -10,6 +10,9 @@
  *******************************************************************************/
 package com.ibm.ws.kernel.filemonitor;
 
+import java.io.File;
+import java.util.Collection;
+
 /**
  * This is an internal interface that extends com.ibm.wsspi.kernel.filemonitor.FileMonitor
  * including all the property plus the MONITOR_IDENTIFICATION_NAME.
@@ -27,4 +30,27 @@ public interface FileMonitor extends com.ibm.wsspi.kernel.filemonitor.FileMonito
      */
     String MONITOR_IDENTIFICATION_NAME = "monitor.identification";
 
+    /**
+     * <h4>Service property</h4>
+     *
+     * The value should be a String, indicating the config id of
+     * keystore that should be monitored for external update
+     */
+    String MONITOR_KEYSTORE_CONFIG_ID = "monitor.keystore.id";
+
+    /**
+     * Security file monitor that can be identified by this value for external updates
+     */
+    String SECURITY_MONITOR_IDENTIFICATION_VALUE = "com.ibm.ws.security.monitor.keystore";
+
+    /**
+     * Called by the monitor service when a scheduled scan completes with
+     * changes (indicated by the presence of files in the corresponding collection).
+     *
+     * @param createdFiles A collection of files that were created since the last scan.
+     * @param modifiedFiles A collection of files that were modified since the last scan.
+     * @param deletedFiles A collection of files that were deleted since the last scan.
+     * @param filter A string used to filter listener notifications. Only the listeners matching the filter are called.
+     */
+    void onChange(Collection<File> createdFiles, Collection<File> modifiedFiles, Collection<File> deletedFiles, String filter);
 }

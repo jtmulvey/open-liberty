@@ -17,7 +17,7 @@
 #
 #CMVCPATHNAME ws/code/webcontainer/src/com/ibm/ws/webcontainer/resources/Messages.nlsprops
 #COMPONENTPREFIX SRVE CWWWC
-#COMPONENTNAMEFOR SRVE Servlet Engine
+#COMPONENTNAMEFOR SRVE CWWWC Servlet Engine
 #ISMESSAGEFILE TRUE
 #NLS_MESSAGEFORMAT_VAR
 #NLS_ENCODING=UNICODE
@@ -1545,7 +1545,15 @@ programmatic.session.cookie.retrieve.cell.xml.failure.useraction=V\u00e9rifiez q
 
 AsyncContext.lock.already.held=SRVE8113W: Impossible d'obtenir un verrou.  Le traitement des erreurs a d\u00e9j\u00e0 \u00e9t\u00e9 appel\u00e9 par une autre unit\u00e9 d'ex\u00e9cution.
 AsyncContext.lock.already.held.explanation=Le traitement des erreurs a d\u00e9j\u00e0 \u00e9t\u00e9 appel\u00e9 par une autre unit\u00e9 d'ex\u00e9cution.
-AsyncContext.lock.already.held.useraction=V\u00e9rifiez que l'application peut g\u00e9rer une exception.  S'il est n\u00e9cessaire que cette m\u00e9thode soit renvoy\u00e9e y compris si l'appel \u00e9choue, contactez le support IBM.
+AsyncContext.lock.already.held.useraction=V\u00e9rifiez que l'application peut g\u00e9rer une exception \u00e0 cet endroit. S'il est n\u00e9cessaire que cette m\u00e9thode retourne le contr\u00f4le m\u00eame en cas d'\u00e9chec de l'appel, mettez \u00e0 false la propri\u00e9t\u00e9 personnalis\u00e9e throwexceptionwhenunabletocompleteordispatch.
+
+Cannot.set.session.cookie.Response.already.committed=SRVE8114W: Avertissement : Impossible d'\u00e9tablir le cookie de session. La r\u00e9ponse a d\u00e9j\u00e0 \u00e9t\u00e9 valid\u00e9e.
+Cannot.set.session.cookie.Response.already.committed.explanation=D\u00e8s lors qu'une r\u00e9ponse a \u00e9t\u00e9 valid\u00e9e, vous ne pouvez plus \u00e9tablir le cookie de session.
+Cannot.set.session.cookie.Response.already.committed.useraction=V\u00e9rifiez si cet appel est n\u00e9cessaire. Si vous devez \u00e9tablir le cookie de session, faites-le avant de valider la r\u00e9ponse.
+
+Cannot.set.status.Response.already.committed=SRVE8115W: AVERTISSEMENT : Impossible de d\u00e9finir le statut. La r\u00e9ponse a d\u00e9j\u00e0 \u00e9t\u00e9 valid\u00e9e.
+Cannot.set.status.Response.already.committed.explanation=D\u00e8s lors qu'une r\u00e9ponse a \u00e9t\u00e9 valid\u00e9e, vous ne pouvez plus \u00e9tablir son statut.
+Cannot.set.status.Response.already.committed.useraction=V\u00e9rifiez si cet appel est n\u00e9cessaire. Si vous devez \u00e9tablir le code de statut de la r\u00e9ponse, faites-le avant de valider cette derni\u00e8re.
 
 servlet.with.same.name.already.exists=SRVE8500W: Impossible d''ajouter dynamiquement un servlet nomm\u00e9 {0} car une configuration de servlet portant le m\u00eame nom existe d\u00e9j\u00e0.  
 servlet.with.same.name.already.exists.explanation=Un servlet portant le m\u00eame nom existe d\u00e9j\u00e0 pour cette application.
@@ -1577,6 +1585,15 @@ uncaught.exception.during.AsyncListener.onComplete.useraction=V\u00e9rifiez le c
 # 0200 - 0299 for Servlet 3.0
 # 0300 - 0399 for Servlet 3.1
 # 0400 - 0499 for Servlet 4
+
 #name.is.null=CWWWC0400E: An attribute name, or initial parameter name, is null.
 #name.is.null.explanation=This is an application error.  The name is null in either context getAttribute(), setAttribute(), getInitParameter(), or setInitParameter().
 #name.is.null.useraction=Update the attribute name, or initial parameter name, with a non-null value.
+
+# Notes for translation
+# {0} is the name of the ServletContainerInitializer that was being invoked at the time of the Exception.
+# {1} is the Exception that was thrown from the onStartup method of the ServletContainerInitializer {0}.
+# {2} is the application name that the ServletContainerInitializer is contained in.
+exception.occurred.while.running.ServletContainerInitializers.onStartup=CWWWC0001W: Le ServletContainerInitializer [{0}], situ\u00e9 dans l''application suivante [{2}], a g\u00e9n\u00e9r\u00e9 l''erreur suivante lors de l''appel de la m\u00e9thode onStartup : [{1}]
+exception.occurred.while.running.ServletContainerInitializers.onStartup.explanation=Une exception a \u00e9t\u00e9 \u00e9mise \u00e0 partir d'un ServletContainerInitializer lors de l'appel de la m\u00e9thode onStartup.
+exception.occurred.while.running.ServletContainerInitializers.onStartup.useraction=Consultez l'exception pour d\u00e9terminer la cause de l'erreur.

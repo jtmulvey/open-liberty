@@ -44,7 +44,7 @@ public class SSLSupportImpl implements SSLSupport {
     private SSLSupportOptional delegate;
     private Map<String, Object> props;
     private volatile ServiceRegistration<SSLSupport> registration;
-    private static final TraceComponent tc = Tr.register(SSLSupportImpl.class);
+    private static final TraceComponent tc = Tr.register(SSLSupportImpl.class, TraceConstants.TRACE_GROUP, TraceConstants.MESSAGE_BUNDLE);
 
     public SSLSupportImpl() {
         if (TraceComponent.isAnyTracingEnabled() && tc.isEventEnabled()) {
@@ -86,10 +86,12 @@ public class SSLSupportImpl implements SSLSupport {
         if (TraceComponent.isAnyTracingEnabled() && tc.isEventEnabled()) {
             Tr.event(tc, "updatedSSLSupportOptional: delegate: " + delegate + " props: " + props);
         }
-        this.props = props;
-        ServiceRegistration<SSLSupport> registration = this.registration;
-        if (registration != null) {
-            registration.setProperties(new Hashtable<String, Object>(this.props));
+        if (props != null) {
+            this.props = props;
+            ServiceRegistration<SSLSupport> registration = this.registration;
+            if (registration != null) {
+                registration.setProperties(new Hashtable<String, Object>(this.props));
+            }
         }
     }
 

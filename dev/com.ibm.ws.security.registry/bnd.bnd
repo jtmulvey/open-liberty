@@ -49,7 +49,8 @@ instrument.classesExcludes: com/ibm/ws/security/registry/internal/resources/*.cl
 	com.ibm.ws.org.apache.felix.scr;version=latest,\
 	com.ibm.ws.bnd.annotations;version=latest,\
 	com.ibm.ws.logging;version=latest, \
-	com.ibm.ws.org.osgi.annotation.versioning;version=latest
+	com.ibm.ws.org.osgi.annotation.versioning;version=latest, \
+	com.ibm.ws.kernel.service;version=latest
 
 -testpath: \
 	../build.sharedResources/lib/junit/old/junit.jar;version=file, \
@@ -59,5 +60,6 @@ instrument.classesExcludes: com/ibm/ws/security/registry/internal/resources/*.cl
 	org.jmock:jmock;strategy=exact;version=2.5.1, \
 	org.jmock:jmock-legacy;version=2.5.0, \
 	com.ibm.ws.org.objenesis:objenesis;version=1.0, \
-	cglib:cglib-nodep;version=3.2.7, \
-	com.ibm.ws.kernel.boot;version=latest, \
+	cglib:cglib-nodep;version=3.2.10, \
+	com.ibm.ws.kernel.boot;version=latest
+

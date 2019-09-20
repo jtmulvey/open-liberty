@@ -85,7 +85,7 @@ public class FATRunner extends BlockJUnit4ClassRunner {
     private static final Set<String> classesUsingFATRunner = new HashSet<String>();
 
     static {
-        Log.info(c, "<clinit>", "System property: fat.test.localrun=" + FAT_TEST_LOCALRUN);
+        Log.info(c, "<clinit>", "Is this FAT running locally?  fat.test.localrun=" + FAT_TEST_LOCALRUN);
         Log.info(c, "<clinit>", "Using filters " + Arrays.toString(testFiltersToApply));
     }
 
@@ -195,15 +195,6 @@ public class FATRunner extends BlockJUnit4ClassRunner {
                     // If we got to here without error, do a final check that
                     // any FFDCs were expected
                     Map<String, FFDCInfo> ffdcAfterTest = retrieveFFDCCounts();
-
-                    // grab the ffdcHeaders for every FFDCInfo we're about to filter
-                    for (FFDCInfo ffdcInfo : ffdcBeforeTest.values()) {
-                        ffdcInfo.ffdcHeader = getFFDCHeader(new RemoteFile(ffdcInfo.machine, ffdcInfo.ffdcFile));
-                    }
-                    for (FFDCInfo ffdcInfo : ffdcAfterTest.values()) {
-                        ffdcInfo.ffdcHeader = getFFDCHeader(new RemoteFile(ffdcInfo.machine, ffdcInfo.ffdcFile));
-                    }
-
                     Map<String, FFDCInfo> unexpectedFFDCs = filterOutPreexistingFFDCs(ffdcBeforeTest, ffdcAfterTest);
 
                     ArrayList<String> errors = new ArrayList<String>();
@@ -217,7 +208,7 @@ public class FATRunner extends BlockJUnit4ClassRunner {
                         }
                     }
 
-                    List<String> allowedFFDCs = getAllowedFFDCAnnotationFromTest(method);
+                    Set<String> allowedFFDCs = getAllowedFFDCAnnotationFromTest(method);
                     // remove allowedFFDCs
                     for (String ffdcException : allowedFFDCs) {
                         if (ffdcException.equals(AllowedFFDC.ALL_FFDC))
@@ -382,18 +373,25 @@ public class FATRunner extends BlockJUnit4ClassRunner {
         return filtered;
     }
 
+    /**
+     * Given a Map of FFDCs that occur before and after a test has run, return a map of the FFDCs that are unique to after-test map
+     */
     private Map<String, FFDCInfo> filterOutPreexistingFFDCs(Map<String, FFDCInfo> ffdcBeforeTest, Map<String, FFDCInfo> ffdcAfterTest) {
         HashMap<String, FFDCInfo> filtered = new HashMap<String, FFDCInfo>(ffdcAfterTest.size());
         for (Map.Entry<String, FFDCInfo> afterEntry : ffdcAfterTest.entrySet()) {
             FFDCInfo beforeInfo = ffdcBeforeTest.get(afterEntry.getKey());
-            if (beforeInfo != null && beforeInfo.ffdcHeader.equals(afterEntry.getValue().ffdcHeader)) {
+            String exeptionKey = afterEntry.getKey();
+            exeptionKey = exeptionKey.substring(0, exeptionKey.indexOf(":"));
+
+            // if the FFDC exception matches, and its header is valid, the current FFDC has previosuly occurred
+            if (beforeInfo != null) {
                 int newVal = afterEntry.getValue().count - beforeInfo.count;
                 if (newVal != 0) {
                     FFDCInfo filteredInfo = new FFDCInfo(afterEntry.getValue(), newVal);
-                    filtered.put(afterEntry.getKey(), filteredInfo);
+                    filtered.put(exeptionKey, filteredInfo);
                 }
             } else {
-                filtered.put(afterEntry.getKey(), afterEntry.getValue());
+                filtered.put(exeptionKey, afterEntry.getValue());
             }
 
         }
@@ -461,6 +459,11 @@ public class FATRunner extends BlockJUnit4ClassRunner {
         return LibertyServerFactory.getKnownLibertyServers(getTestClassNameForAssociatedServers());
     }
 
+    /**
+     * Returns a map of FFDCs applicable to the current server. The map keys are in the format of
+     * <exception>:<ffdcFilePath>, and the map values are FFDCInfo objects. Keeping keys in this format
+     * allows us to keep track of FFDCs that share the same exception across multiple servers.
+     */
     private Map<String, FFDCInfo> retrieveFFDCCounts() {
         HashMap<String, FFDCInfo> ffdcPrimaryInfo = new LinkedHashMap<String, FFDCInfo>();
 
@@ -487,11 +490,13 @@ public class FATRunner extends BlockJUnit4ClassRunner {
                                 //merge returned map from server with primary map
                                 for (Map.Entry<String, FFDCInfo> entry : ffdcServerInfo.entrySet()) {
                                     FFDCInfo oldInfo = ffdcPrimaryInfo.get(entry.getKey());
+                                    String file = entry.getValue().ffdcFile;
                                     if (oldInfo != null) {
                                         // Add the counts if the primary map already had a value for that exception key.
                                         oldInfo.count += entry.getValue().count;
+                                        ffdcPrimaryInfo.put(entry.getKey() + ":" + file, oldInfo);
                                     } else {
-                                        ffdcPrimaryInfo.put(entry.getKey(), entry.getValue());
+                                        ffdcPrimaryInfo.put(entry.getKey() + ":" + file, entry.getValue());
                                     }
                                 }
                                 retry = false;
@@ -504,6 +509,7 @@ public class FATRunner extends BlockJUnit4ClassRunner {
                             }
                         }
                     } catch (TopologyException e) {
+                        //ignore the exception as log directory doesn't exist and no FFDC log
                         retry = false;
                     } catch (Exception e) {
                         Log.info(c, "retrieveFFDCCounts", "Exception parsing FFDC summary");
@@ -583,7 +589,10 @@ public class FATRunner extends BlockJUnit4ClassRunner {
                     }
                 }
             } catch (Exception e) {
-                throw e;
+                // Something went wrong parsing, return null so caller tries again
+                Log.info(this.getClass(), "retrieveFFDCCounts", "Exception parsing FFDC summary");
+                Log.error(this.getClass(), "retrieveFFDCCounts", e);
+                return null;
             } finally {
                 reader.close();
             }
@@ -600,7 +609,6 @@ public class FATRunner extends BlockJUnit4ClassRunner {
                 try {
                     ffdcList = LibertyServerFactory.retrieveFFDCFile(iterator.next());
                 } catch (TopologyException e) {
-                    //ignore the exception as log directory doesn't exist and no FFDC log
                 } catch (Exception e) {
                     Log.error(c, "retrieveFFDCLogs", e);
                 }
@@ -625,9 +633,9 @@ public class FATRunner extends BlockJUnit4ClassRunner {
 
     }
 
-    public List<String> getAllowedFFDCAnnotationFromTest(FrameworkMethod m) {
+    private Set<String> getAllowedFFDCAnnotationFromTest(FrameworkMethod m) {
 
-        ArrayList<String> annotationListPerClass = new ArrayList<String>();
+        Set<String> annotationListPerClass = new HashSet<String>();
         AllowedFFDC methodFFDC = m.getAnnotation(AllowedFFDC.class);
         if (methodFFDC != null) {
             String[] exceptionClasses = methodFFDC.value();
@@ -635,11 +643,23 @@ public class FATRunner extends BlockJUnit4ClassRunner {
                 annotationListPerClass.add(exceptionClass);
             }
         }
-        AllowedFFDC classFFDC = getTestClass().getJavaClass().getAnnotation(AllowedFFDC.class);
-        if (classFFDC != null) {
-            String[] exceptionClasses = classFFDC.value();
+
+        Class<?> declaringClass = m.getMethod().getDeclaringClass();
+        AllowedFFDC servletFFDC = declaringClass.getAnnotation(AllowedFFDC.class);
+        if (servletFFDC != null) {
+            String[] exceptionClasses = servletFFDC.value();
             for (String exceptionClass : exceptionClasses) {
                 annotationListPerClass.add(exceptionClass);
+            }
+        }
+        Class<?> testClass = getTestClass().getJavaClass();
+        if (!declaringClass.equals(testClass)) {
+            AllowedFFDC classFFDC = testClass.getAnnotation(AllowedFFDC.class);
+            if (classFFDC != null) {
+                String[] exceptionClasses = classFFDC.value();
+                for (String exceptionClass : exceptionClasses) {
+                    annotationListPerClass.add(exceptionClass);
+                }
             }
         }
         return annotationListPerClass;
@@ -728,11 +748,11 @@ public class FATRunner extends BlockJUnit4ClassRunner {
     }
 
     private static void compareDirectorySnapshots(String path, Map<String, Long> before, Map<String, Long> after) {
-        final String method = "compareDirectorySnapshots";
 
         if (!ENABLE_TMP_DIR_CHECKING)
             return;
 
+        final String method = "compareDirectorySnapshots";
         if (before.isEmpty() || after.isEmpty()) {
             Log.info(c, method, "Unable to calculate directories for " + path);
             return;

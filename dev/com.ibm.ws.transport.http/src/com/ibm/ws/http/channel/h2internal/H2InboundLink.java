@@ -134,6 +134,7 @@ public class H2InboundLink extends HttpInboundLink {
     int hcDebug = 0x0;
 
     private boolean continuationFrameExpected = false;
+    private boolean writeContinuationFrameExpected = false;
 
     private final Object oneTimeEntrySync = new Object() {};
     private boolean oneTimeEntry = false;
@@ -150,6 +151,20 @@ public class H2InboundLink extends HttpInboundLink {
             Tr.debug(tc, "setContinuationExpected: " + expected);
         }
         this.continuationFrameExpected = expected;
+    }
+
+    public boolean isWriteContinuationExpected() {
+        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+            Tr.debug(tc, "isWriteContinuationExpected: " + writeContinuationFrameExpected);
+        }
+        return writeContinuationFrameExpected;
+    }
+
+    public void setWriteContinuationExpected(boolean expected) {
+        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+            Tr.debug(tc, "setWriteContinuationExpected: " + expected);
+        }
+        this.writeContinuationFrameExpected = expected;
     }
 
     public H2InboundLink(HttpInboundChannel channel, VirtualConnection vc, TCPConnectionContext tcc) {
@@ -268,15 +283,15 @@ public class H2InboundLink extends HttpInboundLink {
     }
 
     /**
-     * Handle a connection initiated via ALPN "h2"
+     * Handle a connection initiated via ALPN "h2", or directly via h2-with-prior-knowledge
      *
      * @param link the initial inbound link
      * @return true if the upgrade was sucessful
      */
-    public boolean handleHTTP2AlpnConnect(HttpInboundLink link) {
+    public boolean handleHTTP2DirectConnect(HttpInboundLink link) {
 
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-            Tr.debug(tc, "handleHTTP2AlpnConnect entry");
+            Tr.debug(tc, "handleHTTP2DirectConnect entry");
         }
 
         initialHttpInboundLink = link;
@@ -294,7 +309,7 @@ public class H2InboundLink extends HttpInboundLink {
         writeQ.addNewNodeToQ(streamID, Node.ROOT_STREAM_ID, Node.DEFAULT_NODE_PRIORITY, false);
         this.setDeviceLink((ConnectionLink) myTSC);
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-            Tr.debug(tc, "handleHTTP2AlpnConnect, exit");
+            Tr.debug(tc, "handleHTTP2DirectConnect, exit");
         }
         return true;
     }
@@ -738,7 +753,7 @@ public class H2InboundLink extends HttpInboundLink {
         }
 
         try {
-            H2WriteQEntry e = new H2WriteQEntry(buf, bufs, numBytes, timeout, H2WriteQEntry.WRITE_TYPE.SYNC, fType, payloadLength, streamID);
+            H2WriteQEntry e = new H2WriteQEntry(buf, bufs, numBytes, timeout, fType, payloadLength, streamID);
             e.armWriteCompleteLatch();
 
             action = writeQ.writeOrAddToQ(e);
@@ -756,6 +771,13 @@ public class H2InboundLink extends HttpInboundLink {
                 synchronized (OutstandingWriteCountSync) {
                     lastWriteTime = System.nanoTime();
                 }
+            }
+
+            if (e.getIOException() != null) {
+                if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                    Tr.debug(tc, "writeSync - IOException recived while writing: " + e);
+                }
+                throw (e.getIOException());
             }
 
         } finally {

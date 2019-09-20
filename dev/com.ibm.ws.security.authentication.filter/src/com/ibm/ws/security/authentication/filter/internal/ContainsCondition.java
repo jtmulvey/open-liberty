@@ -8,15 +8,16 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
+
 package com.ibm.ws.security.authentication.filter.internal;
 
 public class ContainsCondition extends SimpleCondition {
 
     /**
-     *  
+     *
      */
-    public ContainsCondition(String key, IValue value, String operand) {
-        super(key, value, operand);
+    public ContainsCondition(String key, IValue value, String operand, boolean noAttrValue) {
+        super(key, value, operand, noAttrValue);
     }
 
     @Override
