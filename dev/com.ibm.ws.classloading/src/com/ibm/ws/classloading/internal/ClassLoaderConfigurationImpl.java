@@ -160,27 +160,20 @@ class ClassLoaderConfigurationImpl implements ClassLoaderConfiguration {
           .append(" privateLibraries = ").append(sharedLibraries)
           .append(" commonLibraries = ").append(commonLibraries)
           .append(" providers = ").append(providers)
-          .append(" nativeLibraries = ").append(nativeLibraryContainers);
+          .append(" nativeLibraries = ").append(nativeLibraryContainers)
+          .append(" parentLast = ").append(delegateLast);
         return sb.toString();
     }
 
-    /*
-     * (non-Javadoc)
-     *
-     * @see com.ibm.wsspi.classloading.ClassLoaderConfiguration#setProtectionDomain(java.security.ProtectionDomain)
-     */
     @Override
+    @Trivial // injected trace calls ProtectedDomain.toString() which requires privileged access
     public ClassLoaderConfiguration setProtectionDomain(ProtectionDomain domain) {
         this.protectionDomain = domain;
         return this;
     }
 
-    /*
-     * (non-Javadoc)
-     *
-     * @see com.ibm.wsspi.classloading.ClassLoaderConfiguration#getProtectionDomain()
-     */
     @Override
+    @Trivial // injected trace calls ProtectedDomain.toString() which requires privileged access
     public ProtectionDomain getProtectionDomain() {
         return protectionDomain;
     }

@@ -23,7 +23,6 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.jose4j.jwt.consumer.JwtConsumer;
 import org.jose4j.jwt.consumer.JwtConsumerBuilder;
 import org.jose4j.jwt.consumer.JwtContext;
@@ -59,7 +58,7 @@ public class Jose4jUtil {
     private static final String SIGNATURE_ALG_RS256 = "RS256";
     private static final String SIGNATURE_ALG_NONE = "none";
     private final SSLSupport sslSupport;
-    private final JtiNonceCache jtiCache = new JtiNonceCache(); // Jose4jUil has only one instance
+    private static final JtiNonceCache jtiCache = new JtiNonceCache(); // Jose4jUil has only one instance
 
     // set org.jose4j.jws.default-allow-none to true to behave the same as old jwt
     // allow signatureAlgorithme as none
@@ -281,7 +280,7 @@ public class Jose4jUtil {
     //    }
 
     //Just parse without validation for now
-    protected static JwtContext parseJwtWithoutValidation(String jwtString) throws InvalidJwtException {
+    protected static JwtContext parseJwtWithoutValidation(String jwtString) throws Exception {
         JwtConsumer firstPassJwtConsumer = new JwtConsumerBuilder()
                 .setSkipAllValidators()
                 .setDisableRequireSignature()
@@ -302,7 +301,7 @@ public class Jose4jUtil {
         try {
             List<JsonWebStructure> jsonStructures = jwtContext.getJoseObjects();
             if (jsonStructures == null || jsonStructures.isEmpty()) {
-                throw new InvalidJwtException("Invalid JsonWebStructure");
+                throw new Exception("Invalid JsonWebStructure");
             }
             JsonWebStructure jsonStruct = jsonStructures.get(0);
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
@@ -357,7 +356,7 @@ public class Jose4jUtil {
         } else if (SIGNATURE_ALG_RS256.equals(signatureAlgorithm)) {
             if (clientConfig.getJwkEndpointUrl() != null || clientConfig.getJsonWebKey() != null) {
                 JwKRetriever retriever = createJwkRetriever(clientConfig);
-                keyValue = retriever.getPublicKeyFromJwk(kid, x5t, "sig");
+                keyValue = retriever.getPublicKeyFromJwk(kid, x5t, "sig", clientConfig.getUseSystemPropertiesForHttpClientConnections());
             } else {
                 keyValue = clientConfig.getPublicKey();
             }
@@ -463,13 +462,12 @@ public class Jose4jUtil {
         return oidcResult;
     }
 
-    // TODO: bug suspected, jticache never has any entries added.
     ProviderAuthenticationResult checkForReusedJwt(ConvergedClientConfig clientConfig, OidcTokenImplBase idToken) {
         if (clientConfig.getTokenReuse()) {
             // Tokens are allowed to be reused, so don't bother checking any further
             return null;
         }
-        if (jtiCache.contain(idToken)) {
+        if (jtiCache.contain(idToken)) { // this has effect of adding token to cache if not already present.
             if (tc.isDebugEnabled()) {
                 Tr.debug(tc, "Jwt token can only be submitted once. The issuer is " + idToken.getIssuer() + ", and JTI is " + idToken.getJwtId());
             }

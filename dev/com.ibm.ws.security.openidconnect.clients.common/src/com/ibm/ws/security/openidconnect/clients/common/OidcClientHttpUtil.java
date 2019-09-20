@@ -21,11 +21,13 @@ import javax.net.ssl.SSLSocketFactory;
 
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
-import org.apache.http.NameValuePair;
 import org.apache.http.StatusLine;
+import org.apache.http.NameValuePair;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.CookieSpecs;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -42,6 +44,7 @@ import com.ibm.websphere.ras.annotation.Sensitive;
 import com.ibm.ws.common.internal.encoder.Base64Coder;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
 import com.ibm.ws.security.common.web.WebUtils;
+import com.ibm.wsspi.ssl.SSLSupport;
 
 public class OidcClientHttpUtil {
     private static final TraceComponent tc = Tr.register(OidcClientHttpUtil.class);
@@ -53,6 +56,30 @@ public class OidcClientHttpUtil {
 
     public void setClientId(String id) {
         this.clientId = id;
+    }
+
+    public SSLSocketFactory getSSLSocketFactory(ConvergedClientConfig config, SSLSupport sslSupport,
+            boolean throwExceptionIfNull, boolean logErrorIfNull) throws com.ibm.websphere.ssl.SSLException {
+        SSLSocketFactory sslSocketFactory = null;
+
+        try {
+            sslSocketFactory = sslSupport.getSSLSocketFactory(config.getSSLConfigurationName());
+        } catch (javax.net.ssl.SSLException e) {
+            throw new com.ibm.websphere.ssl.SSLException(e.getMessage());
+        }
+        if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+            Tr.debug(tc, "sslSocketFactory (" + ") get: " + sslSocketFactory);
+        }
+
+        if (sslSocketFactory == null && throwExceptionIfNull) {
+            throw new com.ibm.websphere.ssl.SSLException(Tr.formatMessage(tc, "OIDC_CLIENT_HTTPS_WITH_SSLCONTEXT_NULL",
+                    new Object[] { "Null ssl socket factory", config.getClientId() }));
+
+        }
+        if (sslSocketFactory == null && logErrorIfNull) {
+            Tr.error(tc, "OIDC_CLIENT_HTTPS_WITH_SSLCONTEXT_NULL", new Object[] { "Null ssl socket factory", config.getClientId() });
+        }
+        return sslSocketFactory;
     }
 
     /**
@@ -115,7 +142,7 @@ public class OidcClientHttpUtil {
             SSLSocketFactory sslSocketFactory,
             final List<NameValuePair> commonHeaders,
             boolean isHostnameVerification,
-            String authMethod) throws Exception {
+            String authMethod, boolean useSystemPropertiesForHttpClientConnections) throws Exception {
 
         debugPostToEndPoint(url, params, baUsername, baPassword, accessToken, commonHeaders);
 
@@ -125,7 +152,7 @@ public class OidcClientHttpUtil {
 
         setAuthorizationHeaderForPostMethod(baUsername, baPassword, accessToken, postMethod, authMethod);
 
-        HttpClient httpClient = OidcClientHttpUtil.getInstance().createHTTPClient(sslSocketFactory, url, isHostnameVerification);
+        HttpClient httpClient = OidcClientHttpUtil.getInstance().createHTTPClient(sslSocketFactory, url, isHostnameVerification, useSystemPropertiesForHttpClientConnections);
         HttpResponse response = null;
         try {
             response = httpClient.execute(postMethod);
@@ -166,7 +193,7 @@ public class OidcClientHttpUtil {
             SSLSocketFactory sslSocketFactory,
             final List<NameValuePair> commonHeaders,
             boolean isHostnameVerification,
-            String authMethod) throws Exception {
+            String authMethod, boolean useSystemPropertiesForHttpClientConnections) throws Exception {
 
         debugPostToEndPoint(url, params, baUsername, baPassword, accessToken, commonHeaders);
 
@@ -176,7 +203,7 @@ public class OidcClientHttpUtil {
 
         setAuthorizationHeaderForPostMethod(baUsername, baPassword, accessToken, postMethod, authMethod);
 
-        HttpClient httpClient = OidcClientHttpUtil.getInstance().createHTTPClient(sslSocketFactory, url, isHostnameVerification);
+        HttpClient httpClient = OidcClientHttpUtil.getInstance().createHTTPClient(sslSocketFactory, url, isHostnameVerification, useSystemPropertiesForHttpClientConnections);
         HttpResponse response = null;
         try {
             response = httpClient.execute(postMethod);
@@ -253,7 +280,7 @@ public class OidcClientHttpUtil {
             String accessToken,
             final List<NameValuePair> commonHeaders) {
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
-            Tr.debug(tc, "OIDC _SSO RP POST TO URL ["+WebUtils.stripSecretFromUrl(url,"client_secret")+"]");
+            Tr.debug(tc, "OIDC _SSO RP POST TO URL [" + WebUtils.stripSecretFromUrl(url, "client_secret") + "]");
             Tr.debug(tc, "postToEndpoint: url: " + url + " headers: "
                     + commonHeaders + " params: " + "*****" + " baUsername: "
                     + baUsername + " baPassword: " + (baPassword != null ? "****" : null)
@@ -307,12 +334,12 @@ public class OidcClientHttpUtil {
         }
     }
 
-    public HttpClient createHTTPClient(SSLSocketFactory sslSocketFactory, String url, boolean isHostnameVerification) {
+    public HttpClient createHTTPClient(SSLSocketFactory sslSocketFactory, String url, boolean isHostnameVerification, boolean useSystemPropertiesForHttpClientConnections) {
 
         HttpClient client = null;
 
         if (url.startsWith("http:")) {
-            client = HttpClientBuilder.create().build();
+            client = createBuilder(useSystemPropertiesForHttpClientConnections).build();
         } else {
             SSLConnectionSocketFactory connectionFactory = null;
             if (!isHostnameVerification) {
@@ -320,7 +347,7 @@ public class OidcClientHttpUtil {
             } else {
                 connectionFactory = new SSLConnectionSocketFactory(sslSocketFactory, new StrictHostnameVerifier());
             }
-            client = HttpClientBuilder.create().setSSLSocketFactory(connectionFactory).build();
+            client = createBuilder(useSystemPropertiesForHttpClientConnections).setSSLSocketFactory(connectionFactory).build();
         }
 
         // BasicCredentialsProvider credentialsProvider = new
@@ -332,8 +359,12 @@ public class OidcClientHttpUtil {
 
     }
 
+    private HttpClientBuilder createBuilder(boolean useSystemProperties) {
+        return useSystemProperties ? HttpClientBuilder.create().useSystemProperties() : HttpClientBuilder.create();
+    }
+
     public HttpClient createHTTPClient(SSLSocketFactory sslSocketFactory, String url, boolean isHostnameVerification,
-            String baUser, @Sensitive String baPassword) {
+            String baUser, @Sensitive String baPassword, boolean useSystemPropertiesForHttpClientConnections) {
 
         HttpClient client = null;
 
@@ -341,7 +372,7 @@ public class OidcClientHttpUtil {
         credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials(baUser, baPassword));
 
         if (url.startsWith("http:")) {
-            client = HttpClientBuilder.create().setDefaultCredentialsProvider(credentialsProvider).build();
+            client = createBuilder(useSystemPropertiesForHttpClientConnections).setDefaultCredentialsProvider(credentialsProvider).build();
         } else {
             SSLConnectionSocketFactory connectionFactory = null;
             if (!isHostnameVerification) {
@@ -349,11 +380,14 @@ public class OidcClientHttpUtil {
             } else {
                 connectionFactory = new SSLConnectionSocketFactory(sslSocketFactory, new StrictHostnameVerifier());
             }
-            client = HttpClientBuilder.create().setDefaultCredentialsProvider(credentialsProvider).setSSLSocketFactory(connectionFactory).build();
+            RequestConfig rcfg = RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build();
+            client = createBuilder(useSystemPropertiesForHttpClientConnections)
+                    .setDefaultCredentialsProvider(credentialsProvider)
+                    .setSSLSocketFactory(connectionFactory)
+                    .setDefaultRequestConfig(rcfg)
+                    .build();
         }
-
         return client;
-
     }
 
     static OidcClientHttpUtil instance = null;;

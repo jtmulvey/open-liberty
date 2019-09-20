@@ -10,7 +10,6 @@
  *******************************************************************************/
 package com.ibm.ws.jndi.internal;
 
-import static com.ibm.ws.jndi.WSNamingEnumeration.getEnumeration;
 import static com.ibm.ws.jndi.internal.JNDIServiceBinder.createServiceProperties;
 
 import java.security.AccessController;
@@ -49,6 +48,7 @@ import com.ibm.ws.jndi.Adapter;
 import com.ibm.ws.jndi.WSContextBase;
 import com.ibm.ws.jndi.WSName;
 import com.ibm.ws.jndi.WSNameParser;
+import com.ibm.ws.jndi.WSNamingEnumeration;
 
 final class WSContext extends WSContextBase implements Context, Referenceable {
     private final static TraceComponent tc = Tr.register(WSContext.class);
@@ -277,25 +277,23 @@ final class WSContext extends WSContextBase implements Context, Referenceable {
 
     @Override
     protected NamingEnumeration<NameClassPair> list(final WSName subname) throws NamingException {
-        Adapter<Entry<String, Object>, NameClassPair> adapter = new Adapter<Entry<String, Object>, NameClassPair>() {
+        return new WSNamingEnumeration<NameClassPair>(myNode.getChildren(subname).entrySet(), new Adapter<Entry<String, Object>, NameClassPair>() {
             @Override
-            public NameClassPair adapt(Entry<String, Object> entry) throws NamingException {
+            public NameClassPair adapt(Entry<String, Object> entry) {
                 String className = resolveObjectClassName(entry.getValue());
                 return new NameClassPair(entry.getKey(), className);
             }
-        };
-        return getEnumeration(myNode.getChildren(subname), adapter);
+        });
     }
 
     @Override
     protected NamingEnumeration<Binding> listBindings(final WSName subname) throws NamingException {
-        Adapter<Entry<String, Object>, Binding> adapter = new Adapter<Entry<String, Object>, Binding>() {
+        return new WSNamingEnumeration<Binding>(myNode.getChildren(subname).entrySet(), new Adapter<Entry<String, Object>, Binding>() {
             @Override
             public Binding adapt(Entry<String, Object> entry) throws NamingException {
                 return new Binding(entry.getKey(), resolveObject(entry.getValue(), subname.plus(entry.getKey())));
             }
-        };
-        return getEnumeration(myNode.getChildren(subname), adapter);
+        });
     }
 
     @Override
@@ -419,7 +417,7 @@ final class WSContext extends WSContextBase implements Context, Referenceable {
         checkNotExternal(subname, entry, "unbind");
         if (entry instanceof ServiceRegistration) {
             ServiceRegistration<?> reg = (ServiceRegistration<?>) entry;
-            reg.unregister();
+            unregister(reg);
         } else if (entry instanceof ContextNode) {
             ContextNode node = (ContextNode) entry;
             if (!!!scrubContents(node))

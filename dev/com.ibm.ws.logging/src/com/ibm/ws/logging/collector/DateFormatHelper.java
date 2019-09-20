@@ -19,10 +19,66 @@ import java.text.SimpleDateFormat;
 public class DateFormatHelper {
 
     /** Thread specific date format objects */
-    private static ThreadLocal<BurstDateFormat> dateformats = new ThreadLocal<BurstDateFormat>();
+    private static ThreadLocal<BurstDateFormat[]> dateformats = new ThreadLocal<BurstDateFormat[]>();
 
-    /** Locale date and time format pattern */
-    private static final ThreadLocal<String> localeDatePattern = new ThreadLocal<String>();
+    /**
+     * A format string that will produce a reasonable standard way for
+     * formatting time (but still using the current locale)
+     */
+    private static final String localeDatePattern;
+
+    static {
+        String pattern;
+        int patternLength;
+        int endOfSecsIndex;
+        // Retrieve a standard Java DateFormat object with desired format.
+        DateFormat formatter = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM);
+        if (formatter instanceof SimpleDateFormat) {
+            // Retrieve the pattern from the formatter, since we will need to
+            // modify it.
+            SimpleDateFormat sdFormatter = (SimpleDateFormat) formatter;
+            pattern = sdFormatter.toPattern();
+            // Append milliseconds and timezone after seconds
+            patternLength = pattern.length();
+            endOfSecsIndex = pattern.lastIndexOf('s') + 1;
+            StringBuilder newPattern = new StringBuilder(pattern.substring(0, endOfSecsIndex) + ":SSS z");
+            if (endOfSecsIndex < patternLength)
+                newPattern.append(pattern.substring(endOfSecsIndex, patternLength));
+            // 0-23 hour clock (get rid of any other clock formats and am/pm)
+            localeDatePattern = removeClockFormat(newPattern);
+        } else {
+            localeDatePattern = "dd/MMM/yyyy HH:mm:ss:SSS z";
+        }
+    }
+
+    /**
+     * Return the localeDatePattern without clock formats and am/pm as a trimmed String
+     *
+     * @param sb
+     *            A StringBuilder holding the pre-formatted localeDatePattern
+     * @return
+     *         The formatted localeDatePattern
+     */
+    private static final String removeClockFormat(StringBuilder sb) {
+        int start = 0;
+        int end = sb.length() - 1;
+        char letter;
+        // trim left side
+        while (start <= end && ((letter = sb.charAt(start)) == ' ' || letter == 'a'))
+            start++;
+        // trim right side
+        while (end > start && ((letter = sb.charAt(end)) == ' ' || letter == 'a'))
+            end--;
+        // replace characters 'h', 'k', and 'K' to 'H' and 'a' to ' '
+        for (int i = start; i <= end; i++) {
+            letter = sb.charAt(i);
+            if (letter == 'h' || letter == 'k' || letter == 'K')
+                sb.setCharAt(i, 'H');
+            else if (letter == 'a')
+                sb.setCharAt(i, ' ');
+        }
+        return sb.substring(start, end + 1);
+    }
 
     /**
      * Return the given time formatted, based on the provided format structure
@@ -39,66 +95,22 @@ public class DateFormatHelper {
      * @return formated date string
      */
     public static final String formatTime(long timestamp, boolean useIsoDateFormat) {
-        BurstDateFormat df = dateformats.get();
-        if (df == null) {
-            SimpleDateFormat formatter = (SimpleDateFormat) getDateFormat();
-
-            df = new BurstDateFormat((SimpleDateFormat) getDateFormat());
-            dateformats.set(df);
-            String ddp = formatter.toPattern();
-            localeDatePattern.set(ddp);
+        BurstDateFormat[] dfs = dateformats.get();
+        int index = useIsoDateFormat ? 1 : 0;
+        if (dfs == null) {
+            dfs = new BurstDateFormat[index + 1];
+            dateformats.set(dfs);
+        } else if (useIsoDateFormat && dfs.length == 1) {
+            BurstDateFormat[] newDfs = new BurstDateFormat[2];
+            newDfs[0] = dfs[0];
+            dfs = newDfs;
+            dateformats.set(dfs);
         }
 
-        try {
-            // Get and store the locale Date pattern that was retrieved from getDateTimeInstance, to be used later.
-            // This is to prevent creating multiple new instances of SimpleDateFormat, which is expensive.
-
-            if (useIsoDateFormat) {
-                df.applyPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
-            } else {
-                df.applyPattern(localeDatePattern.get());
-            }
-        } catch (Exception e) {
-            // Use the default pattern, instead.
+        if (dfs[index] == null) {
+            dfs[index] = new BurstDateFormat(new SimpleDateFormat(useIsoDateFormat ? "yyyy-MM-dd'T'HH:mm:ss.SSSZ" : localeDatePattern));
         }
 
-        return df.format(timestamp);
-    }
-
-    /**
-     * Return a format string that will produce a reasonable standard way for
-     * formatting time (but still using the current locale)
-     *
-     * @return The format string
-     */
-    private static DateFormat getDateFormat() {
-        String pattern;
-        int patternLength;
-        int endOfSecsIndex;
-        // Retrieve a standard Java DateFormat object with desired format.
-        DateFormat formatter = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM);
-        if (formatter instanceof SimpleDateFormat) {
-            // Retrieve the pattern from the formatter, since we will need to
-            // modify it.
-            SimpleDateFormat sdFormatter = (SimpleDateFormat) formatter;
-            pattern = sdFormatter.toPattern();
-            // Append milliseconds and timezone after seconds
-            patternLength = pattern.length();
-            endOfSecsIndex = pattern.lastIndexOf('s') + 1;
-            String newPattern = pattern.substring(0, endOfSecsIndex) + ":SSS z";
-            if (endOfSecsIndex < patternLength)
-                newPattern += pattern.substring(endOfSecsIndex, patternLength);
-            // 0-23 hour clock (get rid of any other clock formats and am/pm)
-            newPattern = newPattern.replace('h', 'H');
-            newPattern = newPattern.replace('K', 'H');
-            newPattern = newPattern.replace('k', 'H');
-            newPattern = newPattern.replace('a', ' ');
-            newPattern = newPattern.trim();
-            sdFormatter.applyPattern(newPattern);
-            formatter = sdFormatter;
-        } else {
-            formatter = new SimpleDateFormat("dd/MMM/yyyy HH:mm:ss:SSS z");
-        }
-        return formatter;
+        return dfs[index].format(timestamp);
     }
 }

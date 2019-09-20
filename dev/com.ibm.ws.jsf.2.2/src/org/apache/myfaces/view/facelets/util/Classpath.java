@@ -84,42 +84,47 @@ public final class Classpath
             conn.setDefaultUseCaches(false);
 
             JarFile jar = null;
-            if (conn instanceof JarURLConnection)
+            try 
             {
-                try
+                if (conn instanceof JarURLConnection)
                 {
-                    jar = ((JarURLConnection) conn).getJarFile();
+                        jar = ((JarURLConnection) conn).getJarFile();
                 }
-                
-                catch (Throwable e)
+                else
                 {
-                    // This can happen if the classloader provided us a URL that it thinks exists
-                    // but really doesn't.  In particular, if a JAR contains META-INF/MANIFEST.MF
-                    // but not META-INF/, some classloaders may incorrectly report that META-INF/
-                    // exists and we'll end up here.  Just ignore this case.
-                    
-                    continue;
+                    jar = _getAlternativeJarFile(url);
                 }
-            }
-            else
-            {
-                jar = _getAlternativeJarFile(url);
-            }
-
-            if (jar != null)
-            {
-                _searchJar(loader, result, jar, prefix, suffix);
-            }
-            else
-            {
-                if (!_searchDir(result, new File(URLDecoder.decode(url.getFile(), "UTF-8")), suffix))
+    
+                if (jar != null)
                 {
-                    _searchFromURL(result, prefix, suffix, url);
+                    _searchJar(loader, result, jar, prefix, suffix);
+                }
+                else
+                {
+                    if (!_searchDir(result, new File(URLDecoder.decode(url.getFile(), "UTF-8")), suffix))
+                    {
+                        _searchFromURL(result, prefix, suffix, url);
+                    }
+                }    
+            }
+            catch (Throwable e)
+            { 
+                // This can happen if the classloader provided us a URL that it thinks exists
+                // but really doesn't.  In particular, if a JAR contains META-INF/MANIFEST.MF
+                // but not META-INF/, some classloaders may incorrectly report that META-INF/
+                // exists and we'll end up here.  Just ignore this case.
+                continue;
+            }
+            finally 
+            {
+                if (jar != null) 
+                {
+                    jar.close();
                 }
             }
         }
     }
-
+    
     private static boolean _searchDir(Set<URL> result, File dir, String suffix) throws IOException
     {
         boolean dirExists = false;

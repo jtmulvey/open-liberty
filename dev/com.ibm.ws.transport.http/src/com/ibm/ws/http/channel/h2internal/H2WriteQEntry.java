@@ -10,13 +10,13 @@
  *******************************************************************************/
 package com.ibm.ws.http.channel.h2internal;
 
+import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 
 import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
 import com.ibm.ws.http.channel.internal.HttpMessages;
 import com.ibm.wsspi.bytebuffer.WsByteBuffer;
-import com.ibm.wsspi.tcpchannel.TCPWriteCompletedCallback;
 
 /**
  *
@@ -25,18 +25,15 @@ public class H2WriteQEntry {
 
     private static final TraceComponent tc = Tr.register(H2WriteQEntry.class, HttpMessages.HTTP_TRACE_NAME, HttpMessages.HTTP_BUNDLE);
 
-    public static enum WRITE_TYPE {
-        NOT_SET, SYNC, ASYNC
-    };
-
     WsByteBuffer buf = null;
     WsByteBuffer[] bufs = null;
     long minToWrite;
     int timeout;
-    WRITE_TYPE wType = WRITE_TYPE.NOT_SET;
     int priority = 0;
     FrameTypes frameType = FrameTypes.UNKNOWN;
     int payloadLength = 0;
+
+    IOException ioexception = null;
 
     // Latch that will signal when the write is seen as done at the TCP Channel layer.   A rule of the TCP Channel is that no two writes
     // can be outstanding at the same time (which would be really confusing to everyone if there were).
@@ -46,31 +43,14 @@ public class H2WriteQEntry {
     // that is processing this entry
     boolean servicedOnQ = true;
 
-    H2TCPConnectionContext connectionContext = null;
-    TCPWriteCompletedCallback callback = null;
-
     int streamID = 0;
 
-    boolean forceQueue = false;
-
-    public H2WriteQEntry(WsByteBuffer inBuf, WsByteBuffer[] inBufs, long inMin, int inTimeout, WRITE_TYPE inType, FrameTypes fType, int inPayloadLength, int inStreamID) {
-
-        //  For a Sync write entry, the following are not use:  callback, forceQueue, connectionContext.
-        this(inBuf, inBufs, inMin, null, false, inTimeout, null, inType, fType, inPayloadLength, inStreamID);
-
-    }
-
-    public H2WriteQEntry(WsByteBuffer inBuf, WsByteBuffer[] inBufs, long inMin, TCPWriteCompletedCallback inCallback,
-                         boolean inForceQueue, int inTimeout, H2TCPConnectionContext inConnectionContext, WRITE_TYPE inType,
-                         FrameTypes fType, int inPayloadLength, int inStreamID) {
+    public H2WriteQEntry(WsByteBuffer inBuf, WsByteBuffer[] inBufs, long inMin,
+                         int inTimeout, FrameTypes fType, int inPayloadLength, int inStreamID) {
         buf = inBuf;
         bufs = inBufs;
         minToWrite = inMin;
         timeout = inTimeout;
-        wType = inType;
-        callback = inCallback;
-        forceQueue = inForceQueue;
-        connectionContext = inConnectionContext;
         frameType = fType;
         payloadLength = inPayloadLength;
         streamID = inStreamID;
@@ -136,24 +116,8 @@ public class H2WriteQEntry {
         return minToWrite;
     }
 
-    public WRITE_TYPE getWriteType() {
-        return wType;
-    }
-
     public int getTimeout() {
         return timeout;
-    }
-
-    public boolean getForceQueue() {
-        return forceQueue;
-    }
-
-    public TCPWriteCompletedCallback getCallback() {
-        return callback;
-    }
-
-    public H2TCPConnectionContext getConnectionContext() {
-        return connectionContext;
     }
 
     public int getStreamID() {
@@ -166,6 +130,14 @@ public class H2WriteQEntry {
 
     public int getPayloadLength() {
         return payloadLength;
+    }
+
+    public IOException getIOException() {
+        return ioexception;
+    }
+
+    public void setIOException(IOException x) {
+        ioexception = x;
     }
 
 }

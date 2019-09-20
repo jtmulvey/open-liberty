@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2017 IBM Corporation and others.
+ * Copyright (c) 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -8,87 +8,52 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
-/*
- * Master Gradle build script
- *
- * Depends on bnd_* values from gradle.properties.
- */
 
+/**
+ * Configure extra project properties.
+ */
 ext {
   cnf = rootProject.project(bnd_cnf)
   buildImage = project(':build.image')
-}
 
-
-subprojects {
-  plugins.apply 'java'
-  def bndProject = bndWorkspace.getProject(name)
-
-  if (bndProject != null) {
-    plugins.apply 'biz.aQute.bnd'
-  } else {
-    task publish { }
-    task release { }
-    task releaseNeeded { dependsOn release }
-    task copyPiiFiles { }
-  }
-
-  /* For Java 9 builds, set the --release compiler flag to keep bootclasspath in sync */
-  tasks.withType(JavaCompile) {
-    doFirst {
-      if(JavaVersion.current().isJava9Compatible() && !'off'.equals(bnd('javac.args.release'))) {
-        def release = sourceCompatibility
-        if(sourceCompatibility < '9')
-          release = sourceCompatibility.substring(2);
-        if('current'.equals(bnd('javac.args.release')))
-          release = JavaVersion.current().getMajorVersion() 
-        println "Compiling with --release=" + release
-        options.compilerArgs.addAll([ '--release', release])
+  /**
+   * Store some of the properties determined at build time to a file named `generated.properties` for future builds.
+   * The properties are used for uploading artifacts to the IBM DHE remote filesystem in a separate Gradle invocation from the one that created the artifact.
+   */
+  storeProps = {
+    Properties props = new Properties()
+    rootProject.ext.storedProps.each { key ->
+      def value = rootProject.userProps[key]
+      if (value != null) {
+        props.setProperty(key, value)
       }
     }
-  }
-  tasks.withType(Javadoc) {
-    doFirst {
-      // Starting with JDK 9.0.4 the javadoc compiler started to striclty enforce proper HTML
-      // syntax and other breaking changes.  Fixing all of these ocurrances would take far too
-      // long and be a poor use of time, so we will disable these checks for JDK9 and up
-      if(JavaVersion.current().isJava9Compatible()) {
-        options.addStringOption('Xdoclint:none', '-quiet')
-      }
-    }
-  }
 
-  if (bndProject != null) {
-    apply from: cnf.file('gradle/scripts/repos.gradle')
-    apply from: cnf.file('gradle/scripts/publish.gradle')
-    apply from: cnf.file('gradle/scripts/anttaskdefs.gradle')
-    apply from: cnf.file('gradle/scripts/tasks.gradle')
-
-    if (bndis('fat.project')) {
-      apply from: cnf.file('gradle/scripts/fat.gradle')
-    }
-
-  }
-
-  // Make the release task depend on assemble so that invoking 'release' or 'releaseNeeded'
-  // will publish jar updates to the local build.image/wlp image
-  release.dependsOn assemble
-  release.dependsOn publish
-}
-
-task testResults {
-  dependsOn subprojects.test
-
-  doLast {
-    userProps.setProperty('tests.total.failed', failedTestCountTotal.toString())
-    userProps.setProperty('tests.total.successful', successfulTestCountTotal.toString())
-
-    File propsFile = new File('generated.properties')
-    userProps.store(propsFile.newWriter(), null)
+    File propsFile = rootProject.file('generated.properties')
+    props.store(propsFile.newWriter(), null)
   }
 }
 
-task wrapper(type: Wrapper) {
+/**
+ * Apply Java plugin to all subprojects.
+ * See: https://docs.gradle.org/current/userguide/java_plugin.html
+ *
+ * Generate a HTML test report of all unit test results.
+ * See: https://docs.gradle.org/current/dsl/org.gradle.api.tasks.testing.TestReport.html
+ */
+apply from: 'wlp-gradle/java.gradle'
+
+/**
+ * Apply biz.aQute.bnd plugin to all subprojects containing a *.bnd file.
+ * See: https://github.com/bndtools/bnd/blob/master/biz.aQute.bnd.gradle/README.md
+ *
+ * Apply from all scripts in `wlp-gradle/subprojects`.
+ *
+ * Apply OSS Audit plugin to all non-test projects that output bundles.
+ * See: https://github.com/OSSIndex/ossindex-gradle-plugin/blob/master/README.md
+ */
+apply from: 'wlp-gradle/biz.aQute.bnd.gradle'
+
+wrapper {
   jarFile = rootProject.file('.gradle-wrapper/gradle-wrapper.jar')
 }
-

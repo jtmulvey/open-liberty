@@ -68,7 +68,6 @@ import com.ibm.wsspi.webcontainer.WebContainerRequestState;
 import com.ibm.wsspi.webcontainer.collaborator.CollaboratorInvocationEnum;
 import com.ibm.wsspi.webcontainer.collaborator.ICollaboratorHelper;
 import com.ibm.wsspi.webcontainer.collaborator.ICollaboratorMetaData;
-import com.ibm.wsspi.webcontainer.collaborator.IWebAppNameSpaceCollaborator;
 import com.ibm.wsspi.webcontainer.collaborator.IWebAppSecurityCollaborator;
 import com.ibm.wsspi.webcontainer.extension.ExtensionProcessor;
 import com.ibm.wsspi.webcontainer.filter.IFilterConfig;
@@ -138,7 +137,6 @@ public class WebAppFilterManager implements com.ibm.wsspi.webcontainer.filter.We
     com.ibm.ws.webcontainer.webapp.WebApp webApp;
 
     private ICollaboratorHelper collabHelper;
-    private IWebAppNameSpaceCollaborator webAppNameSpaceCollab;
     private IWebAppSecurityCollaborator secCollab;
     private boolean sessionSecurityIntegrationEnabled;
     // PK77465 private boolean disableSecurityPreInvokeOnFilters =
@@ -177,7 +175,6 @@ public class WebAppFilterManager implements com.ibm.wsspi.webcontainer.filter.We
         // LIDB-3598: end
 
         this.collabHelper = webApp.getCollaboratorHelper();
-        this.webAppNameSpaceCollab = this.collabHelper.getWebAppNameSpaceCollaborator();
         this.secCollab = this.collabHelper.getSecurityCollaborator();
 
         this.defaultComponentMetaData = webApp.getWebAppCmd();
@@ -1271,7 +1268,7 @@ public class WebAppFilterManager implements com.ibm.wsspi.webcontainer.filter.We
             dispatchContext.pushException(ser);
             if (!dispatchContext.isInclude() && !dispatchContext.isForward() && (request instanceof HttpServletRequest)) {
                 if (isTraceOn && logger.isLoggable(Level.FINE)) {
-                    logger.logp(Level.FINE, CLASS_NAME, "invokeFilters", "Servletrror report caught, call send error with security context");
+                    logger.logp(Level.FINE, CLASS_NAME, "invokeFilters", "Servlet error report caught, call send error with security context");
                 }
                 WebApp app = (WebApp) dispatchContext.getWebApp();
                 app.sendError((HttpServletRequest) request, (HttpServletResponse) response, ser);

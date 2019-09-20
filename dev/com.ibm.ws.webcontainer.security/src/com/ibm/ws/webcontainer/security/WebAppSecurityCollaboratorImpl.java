@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2011, 2018 IBM Corporation and others.
+ * Copyright (c) 2011, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -37,7 +37,6 @@ import com.ibm.websphere.ras.annotation.Sensitive;
 import com.ibm.websphere.security.audit.AuditConstants;
 import com.ibm.websphere.security.audit.AuditEvent;
 import com.ibm.websphere.security.audit.context.AuditManager;
-import com.ibm.websphere.security.audit.context.AuditThreadContext;
 import com.ibm.websphere.security.auth.CredentialDestroyedException;
 import com.ibm.websphere.security.cred.WSCredential;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
@@ -129,6 +128,7 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
     private static final WebReply PERMIT_REPLY = new PermitReply();
     private static final WebReply DENY_AUTHZ_FAILED = new DenyReply("AuthorizationFailed");
     private static final String AUTH_TYPE = "AUTH_TYPE";
+    private static final String SECURITY_CONTEXT = "SECURITY_CONTEXT";
 
     // '**' will represent the Servlet 3.1 defined all authenticated Security constraint
     private static final String ALL_AUTHENTICATED_ROLE = "**";
@@ -137,6 +137,7 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
     private static final String STARSTAR_ROLE = "_starstar_";
 
     private static WebAppSecurityConfig globalConfig = null;
+    private static WebAuthenticatorFactory globalWebAuthenticatorFactory = null;
     protected final Map<String, Object> currentProps = new HashMap<String, Object>();
     protected volatile WebAuthenticatorFactory authenticatorFactory = null;
     protected volatile WebAppSecurityConfig webAppSecConfig = null;
@@ -161,8 +162,6 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
     private boolean isJaspiEnabled = false;
     private Subject savedSubject = null;
     private boolean isActive = false;
-
-    private static ThreadLocal<AuditThreadContext> threadLocal = new ThreadLocal<AuditThreadContext>();
 
     /**
      * Zero length constructor required by DS.
@@ -277,6 +276,7 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
 
     public void setAuthenticatorFactory(WebAuthenticatorFactory authenticatorFactory) {
         this.authenticatorFactory = authenticatorFactory;
+        globalWebAuthenticatorFactory = authenticatorFactory;
         if (!FrameworkState.isStopping() && isActive && webAppSecConfig != null) {
             activateComponents();
         }
@@ -345,7 +345,8 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
     protected void updateComponents() {
         WebSecurityHelperImpl.setWebAppSecurityConfig(webAppSecConfig);
         SSOCookieHelper ssoCookieHelper = webAppSecConfig.createSSOCookieHelper();
-        authenticateApi = authenticatorFactory.createAuthenticateApi(ssoCookieHelper, securityServiceRef, collabUtils, webAuthenticatorRef, unprotectedResourceServiceRef);
+        authenticateApi = authenticatorFactory.createAuthenticateApi(ssoCookieHelper, securityServiceRef, collabUtils, webAuthenticatorRef, unprotectedResourceServiceRef,
+                                                                     unauthenticatedSubjectService);
         postParameterHelper = new PostParameterHelper(webAppSecConfig);
         providerAuthenticatorProxy = authenticatorFactory.createWebProviderAuthenticatorProxy(securityServiceRef, taiServiceRef, interceptorServiceRef, webAppSecConfig,
                                                                                               webAuthenticatorRef);
@@ -536,6 +537,7 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
 
             try {
                 resetSyncToOSThread(webSecurityContext);
+
             } catch (ThreadIdentityException e) {
                 throw new ServletException(e);
             }
@@ -553,11 +555,16 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
      */
     @Override
     public Object preInvoke(HttpServletRequest req, HttpServletResponse resp, String servletName, boolean enforceSecurity) throws SecurityViolationException, IOException {
+
         Subject invokedSubject = subjectManager.getInvocationSubject();
         Subject receivedSubject = subjectManager.getCallerSubject();
 
         WebSecurityContext webSecurityContext = new WebSecurityContext(invokedSubject, receivedSubject);
         setUnauthenticatedSubjectIfNeeded(invokedSubject, receivedSubject);
+
+        if (req != null) {
+            SRTServletRequestUtils.setPrivateAttribute(req, SECURITY_CONTEXT, webSecurityContext);
+        }
 
         if (enforceSecurity) {
             // Authentication and authorization are not required
@@ -571,6 +578,7 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
                 extraAuditData.put("HTTP_SERVLET_REQUEST", req);
             }
             //auditManager.setHttpServletRequest(req);
+
             performDelegation(servletName);
 
             syncToOSThread(webSecurityContext);
@@ -1149,6 +1157,7 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
         getAuthenticateApi().login(req, resp, username, password, webAppSecConfig, basicAuthAuthenticator);
         String authType = getSecurityMetadata().getLoginConfiguration().getAuthenticationMethod();
         SRTServletRequestUtils.setPrivateAttribute(req, AUTH_TYPE, authType);
+
     }
 
     @Override
@@ -1294,8 +1303,6 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
      */
     public WebReply performInitialChecks(WebRequest webRequest, String uriName) {
         WebReply webReply = null;
-        HttpServletRequest req = webRequest.getHttpServletRequest();
-        String methodName = req.getMethod();
 
         if (uriName == null || uriName.length() == 0) {
             return new DenyReply("Invalid URI passed to Security Collaborator.");
@@ -1305,11 +1312,12 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
             return new DenyReply("Authentication Failed : DIGEST not supported");
         }
 
+        HttpServletRequest req = webRequest.getHttpServletRequest();
         if (wasch.isSSLRequired(webRequest, uriName)) {
             return httpsRedirectHandler.getHTTPSRedirectWebReply(req);
         }
 
-        webReply = unprotectedSpecialURI(webRequest, uriName, methodName);
+        webReply = unprotectedSpecialURI(webRequest, uriName, req.getMethod());
         if (webReply != null) {
             return webReply;
         }
@@ -1326,10 +1334,12 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
     }
 
     private boolean shouldWePerformTAIForUnProtectedURI(WebRequest webRequest) {
-        if (taiServiceRef.getService() != null) {
-            return taiServiceRef.getService().isInvokeForUnprotectedURI();
-        } else
+        if (taiServiceRef.getService() != null && taiServiceRef.getService().isInvokeForUnprotectedURI()) {
+            webRequest.setPerformTAIForUnProtectedURI(true);
+            return true;
+        } else {
             return false;
+        }
     }
 
     /**
@@ -1351,8 +1361,8 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
     }
 
     private MatchResponse getMatchResponse(HttpServletRequest req) throws SecurityViolationException {
-
         MatchResponse matchResponse = MatchResponse.NO_MATCH_RESPONSE;
+
         if (req != null) {
             String method = req.getMethod();
             String uriName = new URLHandler(webAppSecConfig).getServletURI(req);
@@ -1364,11 +1374,12 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
             }
             if (MatchResponse.CUSTOM_NO_MATCH_RESPONSE.equals(matchResponse)) {
                 String url = getRequestURL(req);
-                throw new SecurityViolationException(TraceNLS.getFormattedMessage(this.getClass(),
-                                                                                  TraceConstants.MESSAGE_BUNDLE,
-                                                                                  "SEC_WEB_ILLEGAL_REQUEST",
-                                                                                  new Object[] { method, url },
-                                                                                  "CWWKS9117E: The method {0} is not allowed to process for URL {1}. If this error is unexpected, ensure that the application allows the methods that the client is requesting."), HttpServletResponse.SC_FORBIDDEN);
+                String formattedMessage = TraceNLS.getFormattedMessage(this.getClass(),
+                                                                       TraceConstants.MESSAGE_BUNDLE,
+                                                                       "SEC_WEB_ILLEGAL_REQUEST",
+                                                                       new Object[] { method, url },
+                                                                       "CWWKS9117E: The method {0} is not allowed to process for URL {1}. If this error is unexpected, ensure that the application allows the methods that the client is requesting.");
+                throw convertWebSecurityException(new WebSecurityCollaboratorException(formattedMessage, DENY_AUTHZ_FAILED));
             }
         }
         return matchResponse;
@@ -1481,10 +1492,15 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
         return globalConfig;
     }
 
+    public static WebAuthenticatorFactory getWebAuthenticatorFactory() {
+        return globalWebAuthenticatorFactory;
+    }
+
     protected AuthenticateApi getAuthenticateApi() {
         if (authenticateApi == null) {
             SSOCookieHelper ssoCookieHelper = webAppSecConfig.createSSOCookieHelper();
-            authenticateApi = authenticatorFactory.createAuthenticateApi(ssoCookieHelper, securityServiceRef, collabUtils, webAuthenticatorRef, unprotectedResourceServiceRef);
+            authenticateApi = authenticatorFactory.createAuthenticateApi(ssoCookieHelper, securityServiceRef, collabUtils, webAuthenticatorRef, unprotectedResourceServiceRef,
+                                                                         unauthenticatedSubjectService);
         }
         return authenticateApi;
     }
@@ -1602,7 +1618,7 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
             List<String> requiredRoles = webRequest.getRequiredRoles();
 
             String defaultMethod = (String) req.getAttribute("com.ibm.ws.webcontainer.security.checkdefaultmethod");
-            if (defaultMethod == "TRACE" && requiredRoles.isEmpty()) {
+            if ("TRACE".equals(defaultMethod) && requiredRoles.isEmpty()) {
                 webReply = new DenyReply("Illegal request. Default implementation of TRACE not allowed.");
             }
         }

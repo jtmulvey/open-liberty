@@ -67,8 +67,9 @@ public class SessionCacheErrorPathsTest extends FATServletClient {
     @After
     public void cleanUpPerTest() throws Exception {
         try {
-            if (server.isStarted())
-                server.stopServer();
+            if (server.isStarted()) {
+                server.stopServer("CWWKG0033W");
+            }
         } finally {
             server.updateServerConfiguration(savedConfig);
         }

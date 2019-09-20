@@ -86,6 +86,8 @@ public class AutoExtractTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
             assertNotNull("The application testWarApplication did not appear to have started.",
                           server.waitForStringInLog("CWWKZ0001I.* testWarApplication"));
+            assertNotNull("The server did not report that the app was being extracted",
+                          server.waitForStringInLog("CWWKZ0133I.* testWarApplication"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/testWarApplication/TestServlet");
             Log.info(c, method, "Calling test Application with URL=" + url.toString());
@@ -97,6 +99,11 @@ public class AutoExtractTest extends AbstractAppManagerTest {
                        line.contains("test servlet is running."));
             con.disconnect();
 
+            server.setMarkToEndOfLog();
+
+            // Sleep for one second to ensure that the updated WAR doesn't end up with the same timestamp
+            Thread.sleep(1000);
+
             //replace original application with new version to test that it updates
             server.copyFileToLibertyServerRoot(PUBLISH_UPDATED, DROPINS_DIR, TEST_WAR_APPLICATION);
 
@@ -105,6 +112,7 @@ public class AutoExtractTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKZ0003I.* testWarApplication"));
 
             //get the message from the application to make sure it is the new appication contents
+            Log.info(c, method, "Calling test Application with URL=" + url.toString());
             con = HttpUtils.getHttpConnection(url, HttpURLConnection.HTTP_OK, CONN_TIMEOUT);
             br = HttpUtils.getConnectionStream(con);
             line = br.readLine();
@@ -193,6 +201,8 @@ public class AutoExtractTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
             assertNotNull("The application testWarApplication did not appear to have started.",
                           server.waitForStringInLog("CWWKZ0001I.* testWarApplication"));
+            assertNotNull("The server did not report that the app was being extracted",
+                          server.waitForStringInLog("CWWKZ0133I.* testWarApplication"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/testWarApplication/TestServlet");
             Log.info(c, method, "Calling test Application with URL=" + url.toString());
@@ -300,6 +310,8 @@ public class AutoExtractTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
             assertNotNull("The web application app-j2ee did not appear to have started.",
                           server.waitForStringInLog("CWWKZ0001I.* app-j2ee"));
+            assertNotNull("The server did not report that the app was being extracted",
+                          server.waitForStringInLog("CWWKZ0133I.* app-j2ee"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/test-web/DummyServlet");
             URL url1 = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/test-web1/DummyServlet");
@@ -430,6 +442,8 @@ public class AutoExtractTest extends AbstractAppManagerTest {
                           server.waitForStringInLog("CWWKO0219I.*" + httpDefaultPort));
             assertNotNull("The web application app-j2ee did not appear to have started.",
                           server.waitForStringInLog("CWWKZ0001I.* app-j2ee"));
+            assertNotNull("The server did not report that the app was being extracted",
+                          server.waitForStringInLog("CWWKZ0133I.* app-j2ee"));
 
             URL url = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/test-web/DummyServlet");
             URL url1 = new URL("http://" + server.getHostname() + ":" + httpDefaultPort + "/test-web1/DummyServlet");

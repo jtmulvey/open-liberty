@@ -915,7 +915,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
                 setLocalAddr(getTSC().getLocalAddress());
                 setRemoteAddr(getTSC().getRemoteAddress());
             } catch (Throwable t) {
-                FFDCFilter.processException(t, getClass().getName() + ".init", "1");
+                FFDCFilter.processException(t, getClass().getName() + ".init", "1", this);
                 if (TraceComponent.isAnyTracingEnabled() && tc.isEventEnabled()) {
                     Tr.event(tc, "Received exception from JDK socket calls; " + t);
                 }
@@ -1134,9 +1134,9 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * Input time is expected to be in milliseconds.
      *
      * @param time
-     *            (must not be less than HttpChannelConfig.MIN_TIMEOUT)
+     *                 (must not be less than HttpChannelConfig.MIN_TIMEOUT)
      * @throws IllegalArgumentException
-     *             (if too low)
+     *                                      (if too low)
      */
     @Override
     public void setReadTimeout(int time) throws IllegalArgumentException {
@@ -1156,9 +1156,9 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * Input time is expected to be in milliseconds.
      *
      * @param time
-     *            (must not be less than HttpChannelConfig.MIN_TIMEOUT)
+     *                 (must not be less than HttpChannelConfig.MIN_TIMEOUT)
      * @throws IllegalArgumentException
-     *             (if too low)
+     *                                      (if too low)
      */
     @Override
     public void setWriteTimeout(int time) throws IllegalArgumentException {
@@ -2378,14 +2378,31 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
         }
         if (isOutgoingBodyValid()) {
             HttpInboundServiceContextImpl hisc = null;
-            if (wsbb == null && this instanceof HttpInboundServiceContextImpl) {
-                hisc = (HttpInboundServiceContextImpl) this;
+            boolean needH2EOS = true;
+            HttpInboundLink link = ((HttpInboundServiceContextImpl) this).getLink();
+
+            if (this instanceof HttpInboundServiceContextImpl) {
+                if (link instanceof H2HttpInboundLinkWrap) {
+                    if (framesToWrite != null && framesToWrite.size() > 0) {
+                        Frame lastFrame = framesToWrite.get(framesToWrite.size() - 1);
+                        if (lastFrame != null && lastFrame.flagEndStreamSet()) {
+                            needH2EOS = false;
+                        }
+                    }
+                } else {
+                    needH2EOS = false;
+                }
+                if (wsbb == null || needH2EOS) {
+                    hisc = (HttpInboundServiceContextImpl) this;
+                }
             }
+
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled() && hisc != null && hisc.getLink() != null) {
                 Tr.debug(tc, "sendFullOutgoing : " + hisc + ", " + hisc.getLink().toString());
             }
-            if (hisc != null && hisc.getLink() instanceof H2HttpInboundLinkWrap) {
-                H2HttpInboundLinkWrap h2Link = (H2HttpInboundLinkWrap) hisc.getLink();
+
+            if (hisc != null && link instanceof H2HttpInboundLinkWrap) {
+                H2HttpInboundLinkWrap h2Link = (H2HttpInboundLinkWrap) link;
 
                 if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                     Tr.debug(tc, "sendFullOutgoing : preparing the final write");
@@ -2398,7 +2415,10 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
                     if (trailers != null) {
                         framesToWrite.addAll(h2Link.prepareHeaders(WsByteBufferUtils.asByteArray(trailers), true));
                     }
-                } else {
+                } else if (needH2EOS) {
+                    if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
+                        Tr.debug(tc, "sendFullOutgoing : adding HTTP/2 EOS flag");
+                    }
                     framesToWrite.addAll(h2Link.prepareBody(null, 0, this.isFinalWrite));
                 }
                 if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
@@ -3185,7 +3205,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      *
      * @param excess
      * @throws IllegalHttpBodyException
-     *             (if the CRLF is invalid or missing)
+     *                                      (if the CRLF is invalid or missing)
      */
     private void parseChunkCRLF(int excess) throws IllegalHttpBodyException {
         if (0 == excess) {
@@ -3227,9 +3247,9 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @return boolean (true means async read in progress)
      * @throws BodyCompleteException
      * @throws IllegalHttpBodyException
-     *             -- invalid body lengths
+     *                                      -- invalid body lengths
      * @throws IOException
-     *             -- error reading data to determine lengths
+     *                                      -- error reading data to determine lengths
      */
     private boolean findBodyLength(HttpBaseMessageImpl msg, boolean async) throws BodyCompleteException, IllegalHttpBodyException, IOException {
 
@@ -3407,7 +3427,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @throws BodyCompleteException
      * @throws IllegalHttpBodyException
      * @throws IOException
-     *             -- error reading data
+     *                                      -- error reading data
      */
     private boolean readRawChunk(HttpBaseMessageImpl msg, boolean async) throws BodyCompleteException, IllegalHttpBodyException, IOException {
         if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
@@ -3550,7 +3570,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @throws BodyCompleteException
      * @throws IllegalHttpBodyException
      * @throws IOException
-     *             -- error reading data
+     *                                      -- error reading data
      */
     private boolean readSingleBlock(HttpBaseMessageImpl msg, boolean async) throws BodyCompleteException, IllegalHttpBodyException, IOException {
         // check if tempBuffer is already set, unless we're reading the entire
@@ -3667,7 +3687,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @throws IllegalHttpBodyException
      * @throws BodyCompleteException
      * @throws IOException
-     *             -- error reading data
+     *                                      -- error reading data
      */
     final protected boolean readBodyBuffer(HttpBaseMessageImpl msg, boolean async) throws IllegalHttpBodyException, BodyCompleteException, IOException {
         boolean bAsyncInProgress = false;
@@ -3739,7 +3759,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @throws IllegalHttpBodyException
      * @throws BodyCompleteException
      * @throws IOException
-     *             -- error reading data
+     *                                      -- error reading data
      */
     final protected boolean readBodyBuffers(HttpBaseMessageImpl msg, boolean async) throws IllegalHttpBodyException, BodyCompleteException, IOException {
 
@@ -3826,7 +3846,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      *
      * @return boolean - is there output to return to app channels?
      * @throws IllegalHttpBodyException
-     *             if decryption fails
+     *                                      if decryption fails
      */
     private boolean moveBuffers() throws IllegalHttpBodyException {
         if (this.tempBuffers.isEmpty()) {
@@ -3901,7 +3921,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @throws BodyCompleteException
      * @throws IllegalHttpBodyException
      * @throws IOException
-     *             -- error reading data
+     *                                      -- error reading data
      */
     private boolean readFullCL(HttpBaseMessageImpl msg, boolean async) throws BodyCompleteException, IllegalHttpBodyException, IOException {
         boolean bAsyncInProgress = false;
@@ -3963,7 +3983,7 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @throws BodyCompleteException
      * @throws IllegalHttpBodyException
      * @throws IOException
-     *             -- error reading data
+     *                                      -- error reading data
      */
     private boolean readFullChunk(HttpBaseMessageImpl msg, boolean async) throws BodyCompleteException, IllegalHttpBodyException, IOException {
         boolean bAsyncInProgress = false;
@@ -4272,8 +4292,8 @@ public abstract class HttpServiceContextImpl implements HttpServiceContext, FFDC
      * @param amount
      * @param async
      * @param throwException
-     *            - if an IOException hits, should it be swallowed
-     *            quietly or thrown back to the caller
+     *                           - if an IOException hits, should it be swallowed
+     *                           quietly or thrown back to the caller
      * @return boolean -- true means that an async read is in progress,
      *         false means that there is new data in the currentReadBB to use
      */

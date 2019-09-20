@@ -16,21 +16,21 @@ import org.junit.runners.Suite.SuiteClasses;
 
 @RunWith(Suite.class)
 @SuiteClasses({
-               ServerConfigTest.class,
-               ConfigExtensionsTest.class,
-               ConfigValidatorTest.class,
-               ChildAliasTest.class,
-               ProductExtensionsTest.class,
-               BadConfigTests.class,
-               MergedConfigTests.class,
-               VariableMergeTests.class,
-               MetatypeProviderTest.class,
-               WSConfigurationHelperTest.class,
-               SchemaGeneratorMBeanTest.class,
-               FeaturelistGeneratorMBeanTest.class,
-               ServerXMLConfigurationMBeanTest.class,
-               DropinsTest.class,
-               DelayedVariableTests.class
+                ServerConfigTest.class,
+                ConfigExtensionsTest.class,
+                ConfigValidatorTest.class,
+                ChildAliasTest.class,
+                ProductExtensionsTest.class,
+                BadConfigTests.class,
+                MergedConfigTests.class,
+                VariableMergeTests.class,
+                WSConfigurationHelperTest.class,
+                //SchemaGeneratorMBeanTest.class,
+                FeaturelistGeneratorMBeanTest.class,
+                ServerXMLConfigurationMBeanTest.class,
+                DropinsTest.class,
+                DelayedVariableTests.class,
+                CommandLineVarTests.class
 
 })
 public class FATSuite {

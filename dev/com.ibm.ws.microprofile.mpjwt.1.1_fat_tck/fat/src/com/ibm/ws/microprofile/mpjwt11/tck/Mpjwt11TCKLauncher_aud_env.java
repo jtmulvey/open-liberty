@@ -10,6 +10,8 @@
  *******************************************************************************/
 package com.ibm.ws.microprofile.mpjwt11.tck;
 
+import java.util.Collections;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -34,6 +36,7 @@ public class Mpjwt11TCKLauncher_aud_env {
     @BeforeClass
     public static void setUp() throws Exception {
         server.startServer();
+        server.waitForStringInLog("CWWKS4105I", 30000); // wait for ltpa keys to be created and service ready, which can happen after startup.
     }
 
     @AfterClass
@@ -47,8 +50,6 @@ public class Mpjwt11TCKLauncher_aud_env {
     @AllowedFFDC("org.jose4j.jwt.consumer.InvalidJwtSignatureException")
     public void launchMpjwt11TCKLauncher_aud_env() throws Exception {
         String bucketAndTestName = this.getClass().getCanonicalName();
-        MvnUtils.setSuiteFileName("tck_suite_aud_env.xml", server);
-        MvnUtils.runTCKMvnCmd(server, bucketAndTestName, bucketAndTestName);
-
+        MvnUtils.runTCKMvnCmd(server, bucketAndTestName, bucketAndTestName, "tck_suite_aud_env.xml", Collections.emptyMap(), Collections.emptySet());
     }
 }

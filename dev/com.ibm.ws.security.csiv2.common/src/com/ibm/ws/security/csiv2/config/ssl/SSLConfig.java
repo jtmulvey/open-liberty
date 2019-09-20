@@ -97,6 +97,17 @@ public class SSLConfig {
         }
     }
 
+    public String getSSLProtocol(String sslAliasName) throws SSLException {
+        Properties props = jsseHelper.getProperties(sslAliasName);
+        String protocol = props.getProperty(Constants.SSLPROP_PROTOCOL);
+
+        // only set the protocol on the socket if it is set to a specific protocol
+        if (protocol.equals(Constants.PROTOCOL_SSL) || protocol.equals(Constants.PROTOCOL_TLS))
+            protocol = null;
+
+        return protocol;
+    }
+
     /**
      * This method will warn if any requested cipher suites appear to not match the options
      *
@@ -298,5 +309,28 @@ public class SSLConfig {
             return sslProps.getProperty(Constants.SSLPROP_ALIAS);
 
         return null;
+    }
+
+    /**
+     * @param String - alias of SSL configuration being used
+     * @return boolean
+     */
+    public boolean enableVerifyHostname(String sslAlias) {
+
+        Properties sslProps = null;
+        final String alias = sslAlias;
+        try {
+            sslProps = AccessController.doPrivileged(new PrivilegedExceptionAction<Properties>() {
+                @Override
+                public Properties run() throws SSLException {
+                    return jsseHelper.getProperties(alias, null, null);
+                }
+            });
+        } catch (PrivilegedActionException pae) {
+            // Can't get the properties so return false
+            return false;
+        }
+
+        return Boolean.valueOf(sslProps.getProperty(Constants.SSLPROP_HOSTNAME_VERIFICATION, "false"));
     }
 }

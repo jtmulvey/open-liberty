@@ -60,6 +60,7 @@ import com.ibm.ws.rsadapter.jdbc.v43.WSJdbc43Statement;
 @Trivial
 @Component(property = { "version=4.3", "service.ranking:Integer=43" })
 public class JDBC43Runtime implements JDBCRuntimeVersion {
+
     @Override
     public Version getVersion() {
         return VERSION_4_3;

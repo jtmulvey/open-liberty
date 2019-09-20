@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2017 IBM Corporation and others.
+ * Copyright (c) 2017,2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,6 +26,7 @@ import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
 import com.ibm.websphere.ras.annotation.Trivial;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
+import com.ibm.ws.threading.CancellableStage;
 import com.ibm.ws.threading.PolicyTaskCallback;
 import com.ibm.ws.threading.PolicyTaskFuture;
 import com.ibm.ws.threading.StartTimeoutException;
@@ -54,6 +55,11 @@ public class PolicyTaskFutureImpl<T> implements PolicyTaskFuture<T> {
      * Optional callback for life cycle events.
      */
     final PolicyTaskCallback callback;
+
+    /**
+     * Allows the PolicyExecutor, upon shutdownNow, to cancel CompletionStage instances corresponding to queued tasks.
+     */
+    CancellableStage cancellableStage;
 
     /**
      * The policy executor instance.
@@ -344,6 +350,12 @@ public class PolicyTaskFutureImpl<T> implements PolicyTaskFuture<T> {
             }
     }
 
+    @Trivial
+    PolicyTaskFutureImpl(PolicyExecutorImpl executor, Runnable task, CancellableStage cancellableStage, long startTimeoutNS) {
+        this(executor, task, null, null, startTimeoutNS);
+        this.cancellableStage = cancellableStage;
+    }
+
     @FFDCIgnore(RejectedExecutionException.class)
     PolicyTaskFutureImpl(PolicyExecutorImpl executor, Runnable task, T predefinedResult, PolicyTaskCallback callback, long startTimeoutNS) {
         if (task == null)
@@ -395,6 +407,11 @@ public class PolicyTaskFutureImpl<T> implements PolicyTaskFuture<T> {
             } finally {
                 if (latch != null)
                     latch.countDown();
+                if (cancellableStage != null) {
+                    if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
+                        Tr.debug(this, tc, "completion stage to complete exceptionally: " + cancellableStage);
+                    cancellableStage.completeExceptionally(cause);
+                }
             }
         else {
             // Prevent premature return from abort that would allow subsequent getState() to indicate
@@ -543,6 +560,11 @@ public class PolicyTaskFutureImpl<T> implements PolicyTaskFuture<T> {
             } finally {
                 if (latch != null)
                     latch.countDown();
+                if (cancellableStage != null) {
+                    if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
+                        Tr.debug(this, tc, "completion stage to cancel: " + cancellableStage);
+                    cancellableStage.cancel(false);
+                }
             }
         else {
             // Prevent premature return from cancel that would allow subsequent isCanceled/isDone to return false
@@ -621,7 +643,11 @@ public class PolicyTaskFutureImpl<T> implements PolicyTaskFuture<T> {
     public final long getElapsedRunTime(TimeUnit unit) {
         long begin = nsQueueEnd;
         long elapsed = nsRunEnd - begin;
-        return unit.convert(elapsed >= 0 ? elapsed : begin - nsAcceptBegin > 0 ? System.nanoTime() - begin : 0, TimeUnit.NANOSECONDS);
+        if (elapsed < 0)
+            elapsed = begin - nsAcceptBegin > 0 ? System.nanoTime() - begin : 0;
+        else if (elapsed > 0 && state.get() == ABORTED)
+            elapsed = 0; // nsQueueEnd,nsRunEnd can get out of sync when abort is attempted by multiple threads at once
+        return unit.convert(elapsed, TimeUnit.NANOSECONDS);
     }
 
     @Trivial
@@ -698,6 +724,12 @@ public class PolicyTaskFutureImpl<T> implements PolicyTaskFuture<T> {
                     state.releaseShared(SUCCESSFUL);
                     if (latch != null)
                         latch.countDown(t);
+                } else if (Integer.valueOf(CANCELED).equals(result.get())) {
+                    if (trace && tc.isDebugEnabled())
+                        Tr.debug(this, tc, "canceled during/after run");
+                    // Prevent dirty read of state during onEnd before the canceling thread transitions the state to CANCELING/CANCELED
+                    while (state.get() == RUNNING)
+                        Thread.yield();
                 }
 
                 if (trace && tc.isDebugEnabled())

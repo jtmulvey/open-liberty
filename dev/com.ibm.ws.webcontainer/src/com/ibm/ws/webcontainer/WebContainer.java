@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,7 +61,6 @@ import com.ibm.ws.container.Container;
 import com.ibm.ws.container.DeployedModule;
 import com.ibm.ws.javaee.dd.webext.WebExt;
 import com.ibm.websphere.security.audit.context.AuditManager;
-import com.ibm.websphere.security.audit.context.AuditThreadContext;
 import com.ibm.ws.util.WSThreadLocal;
 import com.ibm.ws.webcontainer.async.AsyncContextFactory;
 import com.ibm.ws.webcontainer.async.AsyncContextImpl;
@@ -138,6 +138,7 @@ public abstract class WebContainer extends BaseContainer {
     private static TraceNLS nls = TraceNLS.getTraceNLS(WebContainer.class, "com.ibm.ws.webcontainer.resources.Messages");
 
     protected static final AtomicReference<WebContainer> self = new AtomicReference<WebContainer>();
+    protected static volatile CountDownLatch selfInit = new CountDownLatch(1);
 
     // 112102 - add HashMap to hold cipher suite to bit size mapping
     private HashMap _cipherToBit = new HashMap();
@@ -164,9 +165,6 @@ public abstract class WebContainer extends BaseContainer {
     private static ServiceLoader<ServletContainerInitializer> servletContainerInitializers;
     
     protected AuditManager auditManager;
-
-    private static ThreadLocal<AuditThreadContext> threadLocal = new ThreadLocal<AuditThreadContext>();
-
 
     private static int invocationCacheSize = 500;
     static {
@@ -610,6 +608,19 @@ public abstract class WebContainer extends BaseContainer {
      * @return WebContainer
      */
     public static WebContainer getWebContainer() {
+        WebContainer selfInstance = self.get();
+        if (selfInstance != null) {
+            return selfInstance;
+        }
+        CountDownLatch currentLatch = selfInit;
+        try {
+            currentLatch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            // auto-FFDC
+            Thread.currentThread().interrupt();
+        }
+ 
+        currentLatch.countDown(); // don't wait again
         return self.get();
     }
 

@@ -42,7 +42,7 @@ public class UniqueNameHelper {
         if (uniqueName == null) {
             return null;
         }
-        return getValidDN(uniqueName);
+        return getValidUniqueName(uniqueName);
     }
 
     /**
@@ -80,12 +80,13 @@ public class UniqueNameHelper {
      * @return The valid and formatted unique name. null will be returned if the unique name is invalid.
      */
     @Trivial
-    public static String getValidUniqueName(String uniqueName) {
-        return getValidDN(uniqueName);
-    }
-
     @FFDCIgnore(InvalidNameException.class)
-    private static String getValidDN(String uniqueName) {
+    public static String getValidUniqueName(String uniqueName) {
+
+        if (uniqueName == null) {
+            return null;
+        }
+
         try {
             /*
              * This may seem excessively complex. Well it is. The issue is that the
@@ -101,6 +102,20 @@ public class UniqueNameHelper {
         } catch (InvalidNameException e) {
             return null;
         }
+    }
+
+    public static boolean isDNUnderBaseEntry(String dn, String... bases) {
+        dn = getValidUniqueName(dn);
+        if (dn != null) {
+            dn = dn.toLowerCase();
+            //return true if any of bases is empty node/""/root or if dn ends with any of the the base
+            for (int i = 0; i < bases.length; i++) {
+                if (bases[i].trim().length() == 0 || dn.endsWith(bases[i].toLowerCase())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -251,7 +266,7 @@ public class UniqueNameHelper {
      * @return the array of separated RDNs.
      */
     public static String[] getRDNs(String rdnStr) {
-        StringTokenizer st = new StringTokenizer(rdnStr, "+");
+        StringTokenizer st = new StringTokenizer(rdnStr.toLowerCase(), "+");
         ArrayList<String> list = new ArrayList<String>();
         while (st.hasMoreTokens()) {
             String rdn = st.nextToken();

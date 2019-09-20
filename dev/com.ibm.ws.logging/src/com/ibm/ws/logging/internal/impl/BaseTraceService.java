@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2012, 2018 IBM Corporation and others.
+ * Copyright (c) 2012, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,9 +14,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.security.AccessController;
+import java.security.PrivilegedExceptionAction;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -40,6 +48,11 @@ import com.ibm.ws.logging.WsLogHandler;
 import com.ibm.ws.logging.WsMessageRouter;
 import com.ibm.ws.logging.WsTraceRouter;
 import com.ibm.ws.logging.collector.CollectorConstants;
+import com.ibm.ws.logging.data.AccessLogData;
+import com.ibm.ws.logging.data.AuditData;
+import com.ibm.ws.logging.data.FFDCData;
+import com.ibm.ws.logging.data.LogTraceData;
+import com.ibm.ws.logging.internal.NLSConstants;
 import com.ibm.ws.logging.internal.PackageProcessor;
 import com.ibm.ws.logging.internal.TraceSpecification;
 import com.ibm.ws.logging.internal.WsLogRecord;
@@ -48,6 +61,7 @@ import com.ibm.ws.logging.source.TraceSource;
 import com.ibm.ws.logging.utils.CollectorManagerPipelineUtils;
 import com.ibm.ws.logging.utils.FileLogHolder;
 import com.ibm.ws.logging.utils.RecursionCounter;
+import com.ibm.ws.logging.utils.SequenceNumber;
 import com.ibm.wsspi.collector.manager.SynchronousHandler;
 import com.ibm.wsspi.logging.LogHandler;
 import com.ibm.wsspi.logging.MessageRouter;
@@ -124,6 +138,7 @@ public class BaseTraceService implements TrService {
     public static final String NULL_FORMATTED_MSG = null;
 
     protected static RecursionCounter counterForTraceRouter = new RecursionCounter();
+    protected static RecursionCounter counterForMessageRouter = new RecursionCounter();
     protected static RecursionCounter counterForTraceSource = new RecursionCounter();
     protected static RecursionCounter counterForTraceWriter = new RecursionCounter();
     protected static RecursionCounter counterForLogSource = new RecursionCounter();
@@ -237,7 +252,7 @@ public class BaseTraceService implements TrService {
      * of system properties we expect (for FFDC and logging).
      *
      * @param config a {@link LogProviderConfigImpl} containing TrService configuration
-     *            from bootstrap properties
+     *                   from bootstrap properties
      */
     @Override
     public void init(LogProviderConfig config) {
@@ -263,10 +278,12 @@ public class BaseTraceService implements TrService {
             }
 
             @Override
-            public void flush() {}
+            public void flush() {
+            }
 
             @Override
-            public void close() {}
+            public void close() {
+            }
         });
     }
 
@@ -283,11 +300,12 @@ public class BaseTraceService implements TrService {
      * so values set there are not unset by metatype defaults.
      *
      * @param config a {@link LogProviderConfigImpl} containing dynamic updates from
-     *            the OSGi managed service.
+     *                   the OSGi managed service.
      */
     @Override
     public synchronized void update(LogProviderConfig config) {
         LogProviderConfigImpl trConfig = (LogProviderConfigImpl) config;
+        applyJsonFields(trConfig.getjsonFields());
         logHeader = trConfig.getLogHeader();
         javaLangInstrument = trConfig.hasJavaLangInstrument();
         consoleLogLevel = trConfig.getConsoleLogLevel();
@@ -440,6 +458,109 @@ public class BaseTraceService implements TrService {
                 updateConduitSyncHandlerConnection(consoleSourceList, consoleLogHandler);
             }
         }
+    }
+
+    public static void applyJsonFields(String value) {
+        if (value == null || value == "" || value.isEmpty()) {
+            //if no property is set, return
+            return;
+        }
+        TraceComponent tc = Tr.register(LogTraceData.class, NLSConstants.GROUP, NLSConstants.LOGGING_NLS);
+        boolean valueFound = false;
+        Map<String, String> messageMap = new HashMap<>();
+        Map<String, String> traceMap = new HashMap<>();
+        Map<String, String> ffdcMap = new HashMap<>();
+        Map<String, String> accessLogMap = new HashMap<>();
+        Map<String, String> auditMap = new HashMap<>();
+
+        List<String> LogTraceList = Arrays.asList(LogTraceData.NAMES1_1);
+        List<String> FFDCList = Arrays.asList(FFDCData.NAMES1_1);
+        List<String> AccessLogList = Arrays.asList(AccessLogData.NAMES1_1);
+        List<String> AuditList = Arrays.asList(AuditData.NAMES1_1);
+
+        String[] keyValuePairs = value.split(","); //split the string to create key-value pairs
+
+        for (String pair : keyValuePairs) //iterate over the pairs
+        {
+            String[] entry = pair.split(":"); //split the pairs to get key and value
+            entry[0] = entry[0].trim();
+            if (entry.length == 2) {//if the mapped value is intended for all event types
+                entry[1] = entry[1].trim();
+                //add properties to all the hashmaps and trim whitespaces
+                if (LogTraceList.contains(entry[0])) {
+                    messageMap.put(entry[0], entry[1]);
+                    traceMap.put(entry[0], entry[1]);
+                    valueFound = true;
+                }
+                if (FFDCList.contains(entry[0])) {
+                    ffdcMap.put(entry[0], entry[1]);
+                    valueFound = true;
+                }
+                if (AccessLogList.contains(entry[0])) {
+                    accessLogMap.put(entry[0], entry[1]);
+                    valueFound = true;
+                }
+                if (AuditList.contains(entry[0])) {
+                    auditMap.put(entry[0], entry[1]);
+                    valueFound = true;
+                }
+                //Check if mapped value is an extension
+                if (entry[0].startsWith("ext_")) {
+                    messageMap.put(entry[0], entry[1]);
+                    traceMap.put(entry[0], entry[1]);
+                    valueFound = true;
+                }
+                if (!valueFound) {
+                    //if the value does not exist in any of the known keys, give a warning
+                    Tr.warning(tc, "JSON_FIELDS_NO_MATCH");
+                }
+                valueFound = false;//reset valueFound boolean
+            } else if (entry.length == 3) {
+                entry[1] = entry[1].trim();
+                entry[2] = entry[2].trim();
+                //add properties to their respective hashmaps and trim whitespaces
+                if (CollectorConstants.MESSAGES_CONFIG_VAL.equals(entry[0])) {
+                    if (LogTraceList.contains(entry[1]) || entry[1].startsWith("ext_")) {
+                        messageMap.put(entry[1], entry[2]);
+                        valueFound = true;
+                    }
+                } else if (CollectorConstants.TRACE_CONFIG_VAL.equals(entry[0])) {
+                    if (LogTraceList.contains(entry[1]) || entry[1].startsWith("ext_")) {
+                        traceMap.put(entry[1], entry[2]);
+                        valueFound = true;
+                    }
+                } else if (CollectorConstants.FFDC_CONFIG_VAL.equals(entry[0])) {
+                    if (FFDCList.contains(entry[1])) {
+                        ffdcMap.put(entry[1], entry[2]);
+                        valueFound = true;
+                    }
+                } else if (CollectorConstants.ACCESS_CONFIG_VAL.equals(entry[0])) {
+                    if (AccessLogList.contains(entry[1])) {
+                        accessLogMap.put(entry[1], entry[2]);
+                        valueFound = true;
+                    }
+                } else if (CollectorConstants.AUDIT_CONFIG_VAL.equals(entry[0])) {
+                    if (AuditList.contains(entry[1])) {
+                        auditMap.put(entry[1], entry[2]);
+                        valueFound = true;
+                    }
+                } else {
+                    Tr.warning(tc, "JSON_FIELDS_INCORRECT_EVENT_TYPE");
+                }
+                if (!valueFound) {
+                    //if the value does not exist in any of the known keys, give a warning
+                    Tr.warning(tc, "JSON_FIELDS_NO_MATCH");
+                }
+                valueFound = false;
+            } else {
+                Tr.warning(tc, "JSON_FIELDS_FORMAT_WARNING_2");
+            }
+        }
+        AccessLogData.newJsonLoggingNameAliases(accessLogMap);
+        FFDCData.newJsonLoggingNameAliases(ffdcMap);
+        LogTraceData.newJsonLoggingNameAliasesMessage(messageMap);
+        LogTraceData.newJsonLoggingNameAliasesTrace(traceMap);
+        AuditData.newJsonLoggingNameAliases(auditMap);
     }
 
     /**
@@ -684,19 +805,35 @@ public class BaseTraceService implements TrService {
 
         boolean retMe = true;
 
-        if (externalMsgRouter != null) {
-            retMe &= externalMsgRouter.route(routedMessage.getFormattedMsg(), routedMessage.getLogRecord());
-        }
-        if (internalMsgRouter != null) {
-            retMe &= internalMsgRouter.route(routedMessage);
-        } else if (earlierMessages != null) {
-            String message = formatter.messageLogFormat(routedMessage.getLogRecord(), routedMessage.getFormattedVerboseMsg());
-            RoutedMessage specialRoutedMessage = new RoutedMessageImpl(routedMessage.getFormattedMsg(), routedMessage.getFormattedVerboseMsg(), message, routedMessage.getLogRecord());
-            synchronized (this) {
-                if (earlierMessages != null) {
-                    earlierMessages.add(specialRoutedMessage);
+        try {
+            /*
+             * Need a recursion Counter for invokingMessageRouters
+             * If an osgi framework debugging options is enabled then a message
+             * is sent to sysout/syserr from wsMessageRouterImpl during the
+             * Reentrant Read Write lock and will cause an infinite loop -- crash.
+             *
+             * Setting it to 2 to allows the "osgi" debug statement to occur once.
+             * i.e Original message goes through and then osgi statement is emitted and is looped back once
+             * and recursion counter will prevent any further statements.
+             */
+            if (!(counterForMessageRouter.incrementCount() > 2)) {
+                if (externalMsgRouter != null) {
+                    retMe &= externalMsgRouter.route(routedMessage.getFormattedMsg(), routedMessage.getLogRecord());
+                }
+                if (internalMsgRouter != null) {
+                    retMe &= internalMsgRouter.route(routedMessage);
+                } else {
+                    String message = formatter.messageLogFormat(routedMessage.getLogRecord(), routedMessage.getFormattedVerboseMsg());
+                    RoutedMessage specialRoutedMessage = new RoutedMessageImpl(routedMessage.getFormattedMsg(), routedMessage.getFormattedVerboseMsg(), message, routedMessage.getLogRecord());
+                    synchronized (this) {
+                        if (earlierMessages != null) {
+                            earlierMessages.add(specialRoutedMessage);
+                        }
+                    }
                 }
             }
+        } finally {
+            counterForMessageRouter.decrementCount();
         }
         return retMe;
     }
@@ -760,7 +897,6 @@ public class BaseTraceService implements TrService {
         TraceWriter detailLog = traceLog;
 
         if (levelValue >= Level.INFO.intValue()) {
-
             formattedMsg = formatter.formatMessage(logRecord);
             formattedVerboseMsg = formatter.formatVerboseMessage(logRecord, formattedMsg);
 
@@ -824,10 +960,10 @@ public class BaseTraceService implements TrService {
     /**
      * Publish a trace log record.
      *
-     * @param detailLog the trace writer
+     * @param detailLog           the trace writer
      * @param logRecord
-     * @param id the trace object id
-     * @param formattedMsg the result of {@link BaseTraceFormatter#formatMessage}
+     * @param id                  the trace object id
+     * @param formattedMsg        the result of {@link BaseTraceFormatter#formatMessage}
      * @param formattedVerboseMsg the result of {@link BaseTraceFormatter#formatVerboseMessage}
      */
     protected void publishTraceLogRecord(TraceWriter detailLog, LogRecord logRecord, Object id, String formattedMsg, String formattedVerboseMsg) {
@@ -974,16 +1110,17 @@ public class BaseTraceService implements TrService {
      * the trace file.
      *
      * @param config a {@link LogProviderConfigImpl} containing TrService configuration
-     *            from bootstrap properties
+     *                   from bootstrap properties
      */
     protected void initializeWriters(LogProviderConfigImpl config) {
         // createFileLog may or may not return the original log holder..
         messagesLog = FileLogHolder.createFileLogHolder(messagesLog,
-                                                        newFileLogHeader(false),
+                                                        newFileLogHeader(false, config),
                                                         config.getLogDirectory(),
                                                         config.getMessageFileName(),
                                                         config.getMaxFiles(),
-                                                        config.getMaxFileBytes());
+                                                        config.getMaxFileBytes(),
+                                                        config.getNewLogsOnStart());
 
         // Always create a traceLog when using Tr -- this file won't actually be
         // created until something is logged to it...
@@ -994,11 +1131,12 @@ public class BaseTraceService implements TrService {
             LoggingFileUtils.tryToClose(oldWriter);
         } else {
             traceLog = FileLogHolder.createFileLogHolder(oldWriter == systemOut ? null : oldWriter,
-                                                         newFileLogHeader(true),
+                                                         newFileLogHeader(true, config),
                                                          config.getLogDirectory(),
                                                          config.getTraceFileName(),
                                                          config.getMaxFiles(),
-                                                         config.getMaxFileBytes());
+                                                         config.getMaxFileBytes(),
+                                                         config.getNewLogsOnStart());
             if (!TraceComponent.isAnyTracingEnabled()) {
                 ((FileLogHolder) traceLog).releaseFile();
             }
@@ -1006,8 +1144,134 @@ public class BaseTraceService implements TrService {
 
     }
 
-    private FileLogHeader newFileLogHeader(boolean trace) {
-        return new FileLogHeader(logHeader, trace, javaLangInstrument);
+    private FileLogHeader newFileLogHeader(boolean trace, LogProviderConfigImpl config) {
+        boolean isJSON = false;
+        String messageFormat = config.getMessageFormat();
+        if (LoggingConstants.JSON_FORMAT.equals(messageFormat)) {
+            isJSON = true;
+            String jsonHeader = constructJSONHeader(messageFormat, config);
+            return new FileLogHeader(jsonHeader, trace, javaLangInstrument, isJSON);
+        }
+        return new FileLogHeader(logHeader, trace, javaLangInstrument, isJSON);
+    }
+
+    private String constructJSONHeader(String messageFormat, LogProviderConfigImpl config) {
+        //retrieve information for header
+        String serverHostName = getServerHostName();
+        String wlpUserDir = config.getWlpUsrDir();
+        String serverName = getServerName(config);
+        String datetime = getDatetime();
+        String sequenceNumber = getSequenceNumber();
+        //construct json header
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"type\":\"liberty_message\"");
+        sb.append(",\"host\":\"");
+        jsonEscape(sb, serverHostName);
+        sb.append("\",\"ibm_userDir\":\"");
+        jsonEscape(sb, wlpUserDir);
+        sb.append("\",\"ibm_serverName\":\"");
+        jsonEscape(sb, serverName);
+        sb.append("\",\"message\":\"");
+        jsonEscape(sb, logHeader);
+        sb.append("\",\"ibm_datetime\":\"");
+        jsonEscape(sb, datetime);
+        sb.append("\",\"ibm_sequence\":\"");
+        jsonEscape(sb, sequenceNumber);
+        sb.append("\"}\n");
+        return sb.toString();
+    }
+
+    private String getSequenceNumber() {
+        SequenceNumber sequenceNumber = new SequenceNumber();
+        long rawSequenceNumber = sequenceNumber.getRawSequenceNumber();
+        String sequenceId = null;
+        if (sequenceId == null || sequenceId.isEmpty()) {
+            sequenceId = SequenceNumber.formatSequenceNumber(System.currentTimeMillis(), rawSequenceNumber);
+        }
+        return sequenceId;
+    }
+
+    private String getDatetime() {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+        String datetime = dateFormat.format(System.currentTimeMillis());
+        return datetime;
+    }
+
+    private String getServerName(LogProviderConfigImpl config) {
+        //Resolve server name to be the DOCKER Container name or the wlp server name.
+        String containerName = System.getenv("CONTAINER_NAME");
+        if (containerName == null || containerName.equals("") || containerName.length() == 0) {
+            this.serverName = config.getServerName();
+        } else {
+            this.serverName = containerName;
+        }
+        return serverName;
+    }
+
+    private String getServerHostName() {
+        String serverHostName = null;
+        //Resolve server name to be the DOCKER HOST name or the cannonical host name.
+        String containerHost = System.getenv("CONTAINER_HOST");
+        if (containerHost == null || containerHost.equals("") || containerHost.length() == 0) {
+            try {
+                serverHostName = AccessController.doPrivileged(new PrivilegedExceptionAction<String>() {
+                    @Override
+                    public String run() throws UnknownHostException {
+                        return InetAddress.getLocalHost().getCanonicalHostName();
+                    }
+                });
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                serverHostName = "";
+            }
+        } else {
+            serverHostName = containerHost;
+        }
+        return serverHostName;
+    }
+
+    /**
+     * Escape \b, \f, \n, \r, \t, ", \, / characters and appends to a string builder
+     *
+     * @param sb String builder to append to
+     * @param s  String to escape
+     */
+    private void jsonEscape(StringBuilder sb, String s) {
+        if (s == null) {
+            sb.append(s);
+            return;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\b':
+                    sb.append("\\b");
+                    break;
+                case '\f':
+                    sb.append("\\f");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+
+                // Fall through because we just need to add \ (escaped) before the character
+                case '\\':
+                case '\"':
+                case '/':
+                    sb.append("\\");
+                    sb.append(c);
+                    break;
+                default:
+                    sb.append(c);
+            }
+        }
     }
 
     public final static class SystemLogHolder extends Level implements TraceWriter {
@@ -1034,7 +1298,8 @@ public class BaseTraceService implements TrService {
 
         /** {@inheritDoc} */
         @Override
-        public void close() throws IOException {}
+        public void close() throws IOException {
+        }
 
         /**
          * Only allow "off" as a valid value for toggling system.out
@@ -1054,6 +1319,216 @@ public class BaseTraceService implements TrService {
             super(trStream, autoFlush);
             this.trStream = trStream;
         }
+
+        @Override
+        public synchronized void print(boolean b) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(b);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(char c) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(c);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(int i) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(i);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(long l) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(l);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(float f) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(f);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(double d) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(d);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(char c[]) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(c);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(String s) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(s);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void print(Object obj) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(obj);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println() {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.println();
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(boolean b) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(b);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(char c) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(c);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(int i) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(i);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(long l) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(l);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(float f) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(f);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(double d) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(d);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(char c[]) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(c);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(String s) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(s);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
+        @Override
+        public synchronized void println(Object obj) {
+            TrOutputStream.isPrinting.set(true);
+            try {
+                super.print(obj);
+            } finally {
+                TrOutputStream.isPrinting.set(false);
+                super.flush();
+            }
+        }
+
     }
 
     /**
@@ -1065,6 +1540,12 @@ public class BaseTraceService implements TrService {
     public static class TrOutputStream extends ByteArrayOutputStream {
         final SystemLogHolder holder;
         final BaseTraceService service;
+        public static ThreadLocal<Boolean> isPrinting = new ThreadLocal<Boolean>() {
+            @Override
+            protected Boolean initialValue() {
+                return Boolean.FALSE;
+            }
+        };
 
         public TrOutputStream(SystemLogHolder slh, BaseTraceService service) {
             this.holder = slh;
@@ -1073,6 +1554,15 @@ public class BaseTraceService implements TrService {
 
         @Override
         public synchronized void flush() throws IOException {
+
+            /*
+             * sPrinting is a ThreadLocal that is set to disable flushing while printing.
+             * This helps us ignore flush requests that the JDK automatically creates in the middle of printing large (>8k) strings.
+             * We want the whole String to be flushed in one shot for benefit of downstream event consumers.
+             */
+            if (isPrinting.get())
+                return;
+
             super.flush();
 
             if (!holder.isEnabled()) {
@@ -1125,8 +1615,8 @@ public class BaseTraceService implements TrService {
      * Write the text to the associated original stream.
      * This is preserved as a subroutine for extension by other delegates (test, JSR47 logging)
      *
-     * @param tc StreamTraceComponent associated with original stream
-     * @param txt pre-formatted or raw message
+     * @param tc        StreamTraceComponent associated with original stream
+     * @param txt       pre-formatted or raw message
      * @param rawStream if true, this is from direct invocation of System.out or System.err
      */
     protected synchronized void writeStreamOutput(SystemLogHolder holder, String txt, boolean rawStream) {

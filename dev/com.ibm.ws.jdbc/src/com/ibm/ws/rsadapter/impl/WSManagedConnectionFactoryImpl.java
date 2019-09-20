@@ -392,6 +392,7 @@ public class WSManagedConnectionFactoryImpl extends WSManagedConnectionFactory i
         else if (dsClassName.startsWith("com.sybase.")) helper = new SybaseHelper(this);
         else if (dsClassName.startsWith("org.apache.derby.jdbc.Client")) helper = new DerbyNetworkClientHelper(this);
         else if (dsClassName.startsWith("org.apache.derby.jdbc.Embedded")) helper = new DerbyHelper(this);
+        else if (dsClassName.startsWith("org.postgresql.")) helper = new PostgreSQLHelper(this);
         else if (vPropsPid.length() > PropertyService.FACTORY_PID.length()) {
             String suffix = vPropsPid.substring(PropertyService.FACTORY_PID.length() + 1);
             if (suffix.startsWith("oracle")) helper = new OracleHelper(this);
@@ -405,6 +406,7 @@ public class WSManagedConnectionFactoryImpl extends WSManagedConnectionFactory i
             else if (suffix.startsWith("sybase")) helper = new SybaseHelper(this);
             else if (suffix.startsWith("derby.client")) helper = new DerbyNetworkClientHelper(this);
             else if (suffix.startsWith("derby.embedded")) helper = new DerbyHelper(this);
+            else if (suffix.startsWith("postgresql")) helper = new PostgreSQLHelper(this);
         }
 
         if (helper == null)
@@ -806,7 +808,7 @@ public class WSManagedConnectionFactoryImpl extends WSManagedConnectionFactory i
                     // shouldn't ever happen
                     throw new DataStoreAdapterException("GENERAL_EXCEPTION", null, getClass(), x.getMessage());
             }
-        else if (DataSource.class.equals(type) || isUCP)
+        else if (DataSource.class.equals(type))
         {
             if (trace && tc.isDebugEnabled())
                 Tr.debug(this, tc, "Getting a connection using Datasource. Is UCP? " + isUCP);

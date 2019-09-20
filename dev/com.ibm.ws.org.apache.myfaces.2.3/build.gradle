@@ -9,14 +9,6 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 
-plugins {
-  id "net.ossindex.audit" version "0.3.8-beta"
-}
-
-audit {
-    failOnError = false
-}
-
 // Local vars
 File downloadSrcDir = project.file('build/source')
 
@@ -25,7 +17,7 @@ configurations {
 }
 
 dependencies {
-    sourceJar 'org.apache.myfaces.core:myfaces-impl:2.3.2:sources'
+    sourceJar 'org.apache.myfaces.core:myfaces-impl:2.3.3:sources'
 }
 
 task copySource(type: Copy) {

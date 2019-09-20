@@ -15,6 +15,8 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -72,8 +74,10 @@ public class PackageProcessor implements ArchiveProcessor {
     final String wlpProperty = "/lib/versions/WebSphereApplicationServer.properties";
     final String wlpPropertyBackup = "WebSphereApplicationServer.properties.bak";
 
-    private static final String PACKAGE_ARCHIVE_PREFIX = "wlp/";
+    protected static final String PACKAGE_ARCHIVE_PREFIX = "wlp/";
     public String packageArchiveEntryPrefix = PACKAGE_ARCHIVE_PREFIX;
+
+    public boolean isServerRootOptionSet = false;
 
     public PackageProcessor(String processName, File packageFile, BootstrapConfig bootProps, List<Pair<PackageOption, String>> options, Set<String> processContent) {
         this.processName = processName;
@@ -172,6 +176,26 @@ public class PackageProcessor implements ArchiveProcessor {
         return newMani;
     }
 
+    private Archive createArchive(final File file) throws IOException {
+
+        if (System.getSecurityManager() == null) {
+            return ArchiveFactory.create(file);
+        } else {
+            try {
+                return AccessController.doPrivileged(new java.security.PrivilegedExceptionAction<Archive>() {
+
+                    @Override
+                    public Archive run() throws IOException {
+                        return ArchiveFactory.create(file);
+                    }
+                });
+            } catch (PrivilegedActionException e) {
+                e.printStackTrace();
+                throw (IOException) e.getException();
+            }
+        }
+    }
+
     public ReturnCode execute(boolean runtimeOnly) {
         Archive archive = null;
         ReturnCode rc = backupWebSphereApplicationServerProperty(installRoot);
@@ -179,10 +203,18 @@ public class PackageProcessor implements ArchiveProcessor {
             return rc;
         }
         try {
+
+            // Dont allow --include=usr and --archive=*.jar combination
+            if (isIncludeOptionEqualToUsr() && isArchiveJar()) {
+                System.out.println(MessageFormat.format(BootstrapConstants.messages.getString("error.package.usr.jar"), processName));
+                return ReturnCode.ERROR_SERVER_PACKAGE;
+            }
+
             // Create the default archive
-            archive = ArchiveFactory.create(packageFile);
+            archive = ArchiveFactory.create(packageFile, java2SecurityEnabled());
+
             // for a Jar archive, the manifest must be first.
-            if (packageFile.getName().endsWith(".jar")) {
+            if (isArchiveJar()) {
                 File manifest = new File(bootProps.getInstallRoot(), "lib/extract/META-INF/MANIFEST.MF");
                 if (!manifest.exists()) {
                     //maybe user didnt extract file with jar -jar, but unzipped..
@@ -387,6 +419,7 @@ public class PackageProcessor implements ArchiveProcessor {
          * Add wlp's root directory
          */
         DirEntryConfig rootDirConfig = new DirEntryConfig(packageArchiveEntryPrefix, bootProps.getInstallRoot(), true, PatternStrategy.IncludePreference);
+
         entryConfigs.add(rootDirConfig);
 
         // include all underneath install-root except usr directory
@@ -454,19 +487,21 @@ public class PackageProcessor implements ArchiveProcessor {
         if (bootProps.getProcessType() == BootstrapConstants.LOC_PROCESS_TYPE_CLIENT) {
             locAreaName = BootstrapConstants.LOC_AREA_NAME_CLIENTS;
         }
+
         DirEntryConfig processConfigDirConfig = null;
-        if (packageArchiveEntryPrefix.equalsIgnoreCase(PACKAGE_ARCHIVE_PREFIX)) {
+        // if --server-root set, then don't add /usr/ in path
+        if (isServerRootOptionSet && (includeUsr(options.get(PackageOption.INCLUDE)))) {
+            processConfigDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
+                                                        + locAreaName + "/"
+                                                        + processName + "/", processConfigDir, true, PatternStrategy.IncludePreference);
+        } else {
             processConfigDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
                                                         + BootstrapConstants.LOC_AREA_NAME_USR + "/"
                                                         + locAreaName + "/"
                                                         + processName + "/", processConfigDir, true, PatternStrategy.IncludePreference);
-        } else {
-            // if --server-root set, then don't add /usr/ in path
-            processConfigDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
-                                                        + locAreaName + "/"
-                                                        + processName + "/", processConfigDir, true, PatternStrategy.IncludePreference);
         }
         entryConfigs.add(processConfigDirConfig);
+
         // avoid any special characters in processName when construct patterns
         String regexProcessName = Pattern.quote(processName);
 
@@ -502,12 +537,19 @@ public class PackageProcessor implements ArchiveProcessor {
          */
         File sharedDir = ProcessorUtils.getFileFromDirectory(wlpUserDir, "shared");
         if (sharedDir.exists()) {
-            DirEntryConfig serverSharedDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
-                                                                      + BootstrapConstants.LOC_AREA_NAME_USR + "/"
-                                                                      + BootstrapConstants.LOC_AREA_NAME_SHARED + "/", sharedDir, true, PatternStrategy.IncludePreference);
+            DirEntryConfig serverSharedDirConfig = null;
+            if (isServerRootOptionSet && (includeUsr(options.get(PackageOption.INCLUDE)))) {
+                serverSharedDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
+                                                           + BootstrapConstants.LOC_AREA_NAME_SHARED + "/", sharedDir, true, PatternStrategy.IncludePreference);
+            } else {
+                serverSharedDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
+                                                           + BootstrapConstants.LOC_AREA_NAME_USR + "/"
+                                                           + BootstrapConstants.LOC_AREA_NAME_SHARED + "/", sharedDir, true, PatternStrategy.IncludePreference);
+            }
             entryConfigs.add(serverSharedDirConfig);
             // exclude security sensitive files
             serverSharedDirConfig.exclude(Pattern.compile(REGEX_SEPARATOR + "resources" + REGEX_SEPARATOR + "security" + REGEX_SEPARATOR + "key.jks"));
+            serverSharedDirConfig.exclude(Pattern.compile(REGEX_SEPARATOR + "resources" + REGEX_SEPARATOR + "security" + REGEX_SEPARATOR + "key.p12"));
 
             /*
              * exclude loose xml files from shared directory
@@ -521,15 +563,22 @@ public class PackageProcessor implements ArchiveProcessor {
         }
 
         /*
-         * Add extension directory
+         * Add /usr/extension directory...aka user features
          */
         if (addUsrExtension) {
             File extensionDir = ProcessorUtils.getFileFromDirectory(wlpUserDir, BootstrapConstants.LOC_AREA_NAME_EXTENSION);
+            DirEntryConfig serverExtensionDirConfig = null;
             if (extensionDir.exists()) {
-                DirEntryConfig serverExtensionDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
-                                                                             + BootstrapConstants.LOC_AREA_NAME_USR + "/"
-                                                                             + BootstrapConstants.LOC_AREA_NAME_EXTENSION
-                                                                             + "/", extensionDir, true, PatternStrategy.IncludePreference);
+                if (isServerRootOptionSet && (includeUsr(options.get(PackageOption.INCLUDE)))) {
+                    serverExtensionDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
+                                                                  + BootstrapConstants.LOC_AREA_NAME_EXTENSION
+                                                                  + "/", extensionDir, true, PatternStrategy.IncludePreference);
+                } else {
+                    serverExtensionDirConfig = new DirEntryConfig(packageArchiveEntryPrefix
+                                                                  + BootstrapConstants.LOC_AREA_NAME_USR + "/"
+                                                                  + BootstrapConstants.LOC_AREA_NAME_EXTENSION
+                                                                  + "/", extensionDir, true, PatternStrategy.IncludePreference);
+                }
                 entryConfigs.add(serverExtensionDirConfig);
             }
 
@@ -571,7 +620,8 @@ public class PackageProcessor implements ArchiveProcessor {
                 looseConfig = ProcessorUtils.convertToLooseConfig(lf);
                 if (looseConfig != null) {
                     try {
-                        ArchiveEntryConfig looseArchiveEntryConfig = ProcessorUtils.createLooseArchiveEntryConfig(looseConfig, lf, bootProps, packageArchiveEntryPrefix);
+                        ArchiveEntryConfig looseArchiveEntryConfig = ProcessorUtils.createLooseArchiveEntryConfig(looseConfig, lf, bootProps, packageArchiveEntryPrefix,
+                                                                                                                  includeUsr(options.get(PackageOption.INCLUDE)));
                         entryConfigs.add(looseArchiveEntryConfig);
                     } catch (FileNotFoundException e) {
                         // If any exception occurs when creating loose file archive, just skip it and create the next one.
@@ -724,5 +774,19 @@ public class PackageProcessor implements ArchiveProcessor {
 
     public void setArchivePrefix(String prefix) {
         packageArchiveEntryPrefix = prefix + "/";
+        isServerRootOptionSet = true;
+    }
+
+    // Check if Java 2 Security is enabled
+    private boolean java2SecurityEnabled() {
+        SecurityManager sm = System.getSecurityManager();
+        if (sm != null)
+            return true;
+        else
+            return false;
+    }
+
+    private boolean isArchiveJar() {
+        return packageFile.getName().endsWith(".jar");
     }
 }

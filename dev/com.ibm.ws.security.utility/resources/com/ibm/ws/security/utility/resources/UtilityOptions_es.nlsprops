@@ -89,8 +89,8 @@ encode.option-desc.listCustom=\tMostrar la informaci\u00f3n del cifrado de contr
 sslCert.desc=\tCrear un certificado SSL predeterminado para su uso en la configuraci\u00f3n del servidor o \n\
 \tdel cliente. 
 #Note to translator the word "createSSLCertificate" should not be translated
-sslCert.usage.options=\t{0} createSSLCertificate '{--server nombre_servidor|--client nombre_cliente'}  \n\
-\t--password contrase\u00f1a [opciones]
+sslCert.usage.options=\t{0} createSSLCertificate '{--server=nombreServidor |--client=nombreCliente'}\n\
+\t--password[=contrase\u00f1a] [opciones]
 sslCert.required-key.server=\ \ \ \ --server=nombre
 sslCert.required-desc.server=\tServidor para el que se crea el certificado.  Este argumento no puede    \n\
 \tutilizase si se utiliza el argumento --client.
@@ -135,6 +135,20 @@ sslCert.option-key.sigAlg=\ \ \ \ --sigAlg=algoritmo de firma
 sslCert.option-desc.sigAlg=\tAlgoritmo de firma del certificado.\n\
 \tEl algoritmo de firma predeterminado es {8}.
 
+sslCert.option-key.keyType=\ \ \ \ --keyType
+sslCert.option-desc.keyType=\tOpcional. De forma predeterminada se generar\u00e1 un almac\u00e9n de claves PKCS12. Para\n\
+\tgenerar un almac\u00e9n de claves JKS, espcifique la opci\u00f3n --keyType con el valor\n\
+\tJKS. No hay ninguna necesidad de especificar esta opci\u00f3n si se espera que haya\n\
+\tun almac\u00e9n de claves PKCS12.\n\
+\tPKCS12 tiene varias ventajas: es m\u00e1s extensible, permite usar algoritmos\n\
+\tcriptogr\u00e1ficos m\u00e1s fuertes y su uso est\u00e1 m\u00e1s extendido. PKCS12 es el formato\n\
+\tque proporcionan frecuentemente las entidades emisoras de certificados\n\
+\tcuando los emiten.
+
+sslCert.option-key.ext=\ \ \ \ --extInfo=informaci\u00f3n de extensi\u00f3n de certificado
+sslCert.option-desc.ext=\tInformaci\u00f3n de extensi\u00f3n de certificado para a\u00f1adir al certificado.\n\
+\tLa extensi\u00f3n predeterminada es una entrada de nombre alternativo de asunto\n\
+\tque utiliza el nombre de host.
 
 # -------- CREATE LTPA KEYS OPTIONS --------------------------------------#
 # List of descriptive text for options. Use "\n\" for line continuations.

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2017 IBM Corporation and others.
+ * Copyright (c) 2017,2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -281,6 +281,21 @@ public interface PolicyExecutor extends ExecutorService {
      * @throws IllegalStateException if the executor has been shut down.
      */
     PolicyExecutor startTimeout(long ms);
+
+    /**
+     * Submit a Runnable task that performs a CompletionStage action.
+     * The CancellableStage parameter represents the CompletionStage, which might be unavailable
+     * when this method is invoked. The abstraction allows it to be supplied at a later time,
+     * and also allows for the fact that CompletionStage, unlike CompletableFuture, does not have a cancel method.
+     * The PolicyExecutor automatically cancels the CancellableStage, allowing the stage to be
+     * canceled if it is available at the time when the PolicyTaskFuture is canceled.
+     *
+     * @param cancellable represents a CompletionStage that the PolicyExecutor should
+     *            automatically cancel upon cancellation of the returned future.
+     * @param task the task to run
+     * @return future for the task.
+     */
+    PolicyTaskFuture<Void> submit(CancellableStage cancellable, Runnable task);
 
     /**
      * Submit a Callable task with a callback to be invoked at various points in the task's life cycle.

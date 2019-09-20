@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2017 IBM Corporation and others.
+ * Copyright (c) 2001, 2019 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,10 +10,13 @@
  *******************************************************************************/
 package com.ibm.ws.rsadapter.impl;
 
+import java.io.FileNotFoundException;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.security.PrivilegedActionException;
+import java.security.PrivilegedExceptionAction;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.SQLException;
@@ -129,6 +132,13 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
         VENDOR_PROPERTY_SETTERS.add("setRemarksReporting");
         VENDOR_PROPERTY_SETTERS.add("setRestrictGetTables");
         VENDOR_PROPERTY_SETTERS.add("setSessionTimeZone");
+        
+        /*
+         * PostgreSQL property setters
+         */
+        VENDOR_PROPERTY_SETTERS.add("setDefaultFetchSize");
+        VENDOR_PROPERTY_SETTERS.add("setPrepareThreshold");
+        VENDOR_PROPERTY_SETTERS.add("setAutosave");
     }
 
     /**
@@ -543,7 +553,7 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
      */
     private final void addHandle(WSJdbcConnection handle) throws ResourceException {
         (numHandlesInUse < handlesInUse.length - 1 ? handlesInUse : resizeHandleList())[numHandlesInUse++] = handle;
-        if (!inRequest)
+        if (!inRequest && dsConfig.get().enableBeginEndRequest)
             try {
                 inRequest = true;
                 mcf.jdbcRuntime.beginRequest(sqlConn);
@@ -651,7 +661,7 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                                 connectionPropertyChanged && mcf.supportsGetTypeMap ? getTypeMap() : cri.ivTypeMap,
                                 holdabilityChanged ? getHoldability() : cri.ivHoldability,
                                 connectionPropertyChanged && mcf.supportsGetSchema ? getSchemaSafely() : cri.ivSchema,
-                                connectionPropertyChanged && mcf.supportsGetNetworkTimeout ? getNetworkTimeoutSafely() : cri.ivNetworkTimeout,
+                                connectionPropertyChanged && mcf.supportsGetNetworkTimeout ? Integer.valueOf(getNetworkTimeoutSafely()) : cri.ivNetworkTimeout,
                                 cri.ivConfigID,
                                 cri.supportIsolvlSwitching);
 
@@ -2108,9 +2118,29 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                 setTypeMap(cri.ivTypeMap);
             }
             
-            if(mcf.supportsGetNetworkTimeout && cri.ivNetworkTimeout != currentNetworkTimeout){
-                ExecutorService libertyThreadPool = mcf.connectorSvc.getLibertyThreadPool();
-                setNetworkTimeout(libertyThreadPool, cri.ivNetworkTimeout);
+            // Use the default timeout if cri.ivNetworkTimeout hasn't been initialized.
+            final int timeoutToSet = cri.ivNetworkTimeout == null ? defaultNetworkTimeout : cri.ivNetworkTimeout;
+            
+            if (mcf.supportsGetNetworkTimeout && currentNetworkTimeout != timeoutToSet) {
+                final ExecutorService libertyThreadPool = mcf.connectorSvc.getLibertyThreadPool();
+                // setNetworkTimeout is the only JDBC Connection property that may perform access checks
+                if (System.getSecurityManager() == null) {
+                    setNetworkTimeout(libertyThreadPool, timeoutToSet);
+                } else {
+                    try {
+                        AccessController.doPrivileged(new PrivilegedExceptionAction<Void>() {
+                            @Override
+                            public Void run() throws Exception {
+                                setNetworkTimeout(libertyThreadPool, timeoutToSet);
+                                return null;
+                            }
+                        });
+                    } catch (PrivilegedActionException e) {
+                        if (e.getException() instanceof SQLException)
+                            throw (SQLException) e.getException();
+                        throw (RuntimeException) e.getException();
+                    }
+                }
             }
 
             if(mcf.supportsGetSchema && (cri.ivSchema != null || defaultSchema != null)){
@@ -2147,7 +2177,7 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                                    "Schema:        " + defaultSchema + "/" + (cri.ivSchema == null ? defaultSchema : cri.ivSchema),
                                    "ShardingKey:   " + initialShardingKey + "/" + cri.ivShardingKey,
                                    "SuperShardingK:" + initialSuperShardingKey + "/" + cri.ivSuperShardingKey,
-                                   "NetworkTimeout:" + defaultNetworkTimeout + "/" + (cri.ivNetworkTimeout == 0 ? defaultNetworkTimeout : cri.ivNetworkTimeout),
+                                   "NetworkTimeout:" + defaultNetworkTimeout + "/" + (cri.ivNetworkTimeout == null ? defaultNetworkTimeout : cri.ivNetworkTimeout),
                                    "IsReadOnly:    " + defaultReadOnly + "/" + (cri.ivReadOnly == null ? defaultReadOnly : cri.ivReadOnly), 
                                    "TypeMap:       " + defaultTypeMap + "/" + (cri.ivTypeMap == null ? defaultTypeMap : cri.ivTypeMap),
                                    "Holdability:   " + AdapterUtil.getCursorHoldabilityString(previousHoldability) +
@@ -2456,7 +2486,7 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
 
         ResourceException dsae = null;
 
-        if (inRequest)
+        if (inRequest || isAborted())
             try {
                 inRequest = false;
                 mcf.jdbcRuntime.endRequest(sqlConn);
@@ -2465,6 +2495,7 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                     FFDCFilter.processException(x, getClass().getName(), "2447", this);
                     dsae = new DataStoreAdapterException("DSA_ERROR", x, getClass());
                 }
+                Tr.debug(tc, "Error during end request in destroy.", x);
             }
 
         if(isAborted()){
@@ -2695,7 +2726,7 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
         // rolled back, even if something fails early on in the cleanup processing.
         ResourceException firstX = null;
 
-        if (inRequest)
+        if (inRequest && !isAborted())
             try {
                 inRequest = false;
                 mcf.jdbcRuntime.endRequest(sqlConn);
@@ -2704,13 +2735,8 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                     FFDCFilter.processException(x, getClass().getName(), "2682", this);
                     firstX = new DataStoreAdapterException("DSA_ERROR", x, getClass());
                 }
+                Tr.debug(tc, "Error during end request in cleanup.", x);
             }
-
-        if(isAborted()){
-            if(isTraceOn && tc.isEntryEnabled())
-                Tr.exit(this, tc, "cleanup", "ManagedConnection is aborted -- skipping cleanup");
-            return;
-        }
 
         // According to the JCA 1.5 spec, all remaining handles must be invalidated on
         // cleanup.  This is achieved by closing the handles.  Dissociating the handles would
@@ -2966,8 +2992,25 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
 
             if(mcf.supportsGetNetworkTimeout){
                 try{
-                    ExecutorService libertyThreadPool = mcf.connectorSvc.getLibertyThreadPool();
-                    setNetworkTimeout(libertyThreadPool, defaultNetworkTimeout);
+                    final ExecutorService libertyThreadPool = mcf.connectorSvc.getLibertyThreadPool();
+                    // setNetworkTimeout is the only JDBC Connection property that may perform access checks
+                    if (System.getSecurityManager() == null) {
+                        setNetworkTimeout(libertyThreadPool, defaultNetworkTimeout);
+                    } else {
+                        try {
+                            AccessController.doPrivileged(new PrivilegedExceptionAction<Void>() {
+                                @Override
+                                public Void run() throws Exception {
+                                    setNetworkTimeout(libertyThreadPool, defaultNetworkTimeout);
+                                    return null;
+                                }
+                            });
+                        } catch (PrivilegedActionException e) {
+                            if (e.getException() instanceof SQLException)
+                                throw (SQLException) e.getException();
+                            throw (RuntimeException) e.getException();
+                        }
+                    }
                     
                     if(connectionSharing == ConnectionSharing.MatchCurrentState){
                         if(!cri.isCRIChangable())
@@ -3097,6 +3140,10 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                     // No FFDC code needed; this is a normal case.
                     // Continue with the rollback if an exception is thrown on end. 
                 }
+                
+                if (aborted) {
+                    break;
+                }
 
                 try {
                     ((WSRdbXaResourceImpl) xares).rollback();
@@ -3112,7 +3159,7 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                     throw new DataStoreAdapterException("DSA_ERROR", xae, getClass());
                 }
 
-                if (inCleanup) 
+                if (inCleanup && !aborted) 
                 {
                     String message =
                                     "Cannot call 'cleanup' on a ManagedConnection while it is still in a " +
@@ -3137,6 +3184,10 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
                 // be on.  In this case, just no-op, since some drivers like ConnectJDBC 3.1
                 // don't allow commit/rollback when autoCommit is on.  
 
+                if (aborted) {
+                    break;
+                }
+                
                 if (!currentAutoCommit)
                     try { // autoCommit is off
                         sqlConn.rollback();
@@ -4416,17 +4467,12 @@ public class WSRdbManagedConnectionImpl extends WSManagedConnection implements
 
 
     @Override
-    public void abort(Executor ex) throws SQLFeatureNotSupportedException {
+    public void abort(Executor ex) throws Exception {
         if (mcf.beforeJDBCVersion(JDBCRuntimeVersion.VERSION_4_1))
           throw new SQLFeatureNotSupportedException();
-        try {
-            setAborted(true);
-            mcf.jdbcRuntime.doAbort(sqlConn, ex);
-        } catch (SQLException e) {
-            // avoid raising an error so connection management code can continue its own abort processing
-            if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled())
-                Tr.debug(this, tc, "abort failure", e);
-        }
+        
+        mcf.jdbcRuntime.doAbort(sqlConn, ex);
+        setAborted(true);
     }
     
     @Override

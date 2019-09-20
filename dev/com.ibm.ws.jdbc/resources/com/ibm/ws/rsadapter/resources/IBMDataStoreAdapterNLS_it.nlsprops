@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (c) 2001, 2016 IBM Corporation and others.
+# Copyright (c) 2001, 2019 IBM Corporation and others.
 # All rights reserved. This program and the accompanying materials
 # are made available under the terms of the Eclipse Public License v1.0
 # which accompanies this distribution, and is available at
@@ -271,6 +271,22 @@ DSRA4011.tran.none.iso.switch.unsupported=DSRA4011E: Il driver JDBC non supporta
 DSRA4011.tran.none.iso.switch.unsupported.explanation=La specifica JDBC non supporta la commutazione a un livello di isolamento di TRANSACTION_NONE.
 DSRA4011.tran.none.iso.switch.unsupported.useraction=Evitare la commutazione a un livello di isolamento di TRANSACTION_NONE.
 
+DSRA4012.ignored.datasource.config.used=DSRA4012I: Quando si utilizza l''UCP Oracle le seguenti propriet\u00e0 di origine dati vengono ignorate: {0}.
+DSRA4012.ignored.datasource.config.used.explanation=Le propriet\u00e0 origine dati elencate non sono valide quando si utilizza UCP Oracle.
+DSRA4012.ignored.datasource.config.used.useraction=Rimuovere le propriet\u00e0 dell'origine dati non valide e utilizzare invece la funzionalit\u00e0 UCP Oracle equivalente, se disponibile.
+
+DSRA4013.ignored.connection.manager.config.used=DSRA4013I: Le propriet\u00e0 del gestore connessioni non sono valide. Quando si utilizza UCP Oracle le seguenti propriet\u00e0 del gestore connessioni sono valide: {0}.
+DSRA4013.ignored.connection.manager.config.used.explanation=Quando si utilizza UCP Oracle, sono valide solo le propriet\u00e0 del gestore connessioni elencate.
+DSRA4013.ignored.connection.manager.config.used.useraction=Rimuovere le propriet\u00e0 del del gestore connessioni non valide e utilizzare invece la funzionalit\u00e0 UCP Oracle equivalente, se disponibile.
+
+DSRA4014.URL.for.Driver.missing=DSRA4014E: \u00c8 stato specificato il tipo java.sql.Driver per l''origine dati specificata {0}, ma non \u00e8 stato specificato un attributo URL.
+DSRA4014.URL.for.Driver.missing.explanation=\u00c8 necessario specificare un URL di connessione per un'origine dati di tipo java.sql.Driver.
+DSRA4014.URL.for.Driver.missing.useraction=Aggiungere un URL valido all'origine dati.
+
+DSRA4015.no.ucp.connection.pool.datasource=DSRA4015E: L''origine dati {0} \u00e8 stata configurata con il tipo {1}, che non \u00e8 supportato da Oracle UCP. Utilizzare, invece, il tipo XADataSource o DataSource.
+DSRA4015.no.ucp.connection.pool.datasource.explanation=L'origine dati \u00e8 stata configurata con il tipo Driver o ConnectionPoolDataSource, che non \u00e8 implementato dal driver Oracle UCP.
+DSRA4015.no.ucp.connection.pool.datasource.useraction=Aggiornare l'origine dati per utilizzare il tipo XADataSource o DataSource.
+
 # ----------------------------------------------------------------------------
 # 
 # Using 7000-7599 for DataStore Helper exception messages and warnings
@@ -486,6 +502,10 @@ DEFAULT_MATCH_ORIGINAL.useraction=Verificare che la propriet\u00e0 personalizzat
 
 # 8780 deleted
 
+DSRA8790_SUPPRESS_BEGIN_END_REQUEST=DSRA8790W: I metodi beginRequest e endRequest devono essere utilizzati solo dai gestori connessioni. La specifica JDBC non \u00e8 in grado di gestire pi\u00f9 gestori connessioni che possono gestire una connessione. L''utilizzo di beginRequest e endRequest da parte di altri gestori di connessioni \u00e8 soppresso quando la gestione della connessione \u00e8 fornita dal server delle applicazioni. Il seguente stack indica il percorso del codice su cui \u00e8 stata richiamata l''operazione beginRequest o endRequest: {0}.
+DSRA8790_SUPPRESS_BEGIN_END_REQUEST.explanation=I suggerimenti per beginRequest e endRequest sono soppressi per evitare effetti indesiderati che interferiscono con la gestione della connessione.
+DSRA8790_SUPPRESS_BEGIN_END_REQUEST.useraction=Per evitare questa avvertenza, rimuovere il codice che richiama beginRequest e endRequest come identificato dallo stack fornito.
+
 # ----------------------------------------------------------------------------
 # 
 # Using the 9000's for JDBC wrapper messages.
@@ -529,6 +549,13 @@ NO_WRAPPED_OBJECT.explanation=Il wrapper specificato non contiene il tipo di ogg
 NO_WRAPPED_OBJECT.useraction=Verificare che il wrapper e i parametri dell'oggetto con il wrap siano stati specificati correttamente.
 
 # 9123 deleted
+
+# 9124       NOT_AN_INTERFACE
+#
+# {0}        The Class that was specified to unwrap to
+NOT_AN_INTERFACE=DSRA9124E: Impossibile eseguire l''unwrap dell''oggetto su {0} perch\u00e9 {0} non \u00e8 una classe di interfaccia.
+NOT_AN_INTERFACE.explanation=Il metodo unwrap consente solo l'unwrap in una classe di interfaccia.
+NOT_AN_INTERFACE.useraction=Eseguire l'unwrap a una classe che sia un'interfaccia invece che una classe concreta.
 
 # 9130E      OPERATION_NOT_PERMITTED
 # 

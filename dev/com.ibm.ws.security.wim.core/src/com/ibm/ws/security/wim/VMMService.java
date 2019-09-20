@@ -98,7 +98,7 @@ public class VMMService implements Service, RealmConfigChangeListener {
     }
 
     @Reference(cardinality = ReferenceCardinality.MULTIPLE, policy = ReferencePolicy.DYNAMIC)
-    protected void setConfiguredRepository(Map<String, Object> props, ConfiguredRepository configuredRepository) {
+    protected void setConfiguredRepository(ConfiguredRepository configuredRepository, Map<String, Object> props) {
         String repositoryId = (String) props.get(KEY_ID);
         repositoryManager.addConfiguredRepository(repositoryId, configuredRepository);
         notifyListeners();
@@ -115,7 +115,7 @@ public class VMMService implements Service, RealmConfigChangeListener {
     }
 
     @Reference(cardinality = ReferenceCardinality.MULTIPLE, policy = ReferencePolicy.DYNAMIC)
-    protected void setCustomRepository(Map<String, Object> props, CustomRepository customRepository) {
+    protected void setCustomRepository(CustomRepository customRepository, Map<String, Object> props) {
         String repositoryId = (String) props.get(KEY_ID);
         repositoryManager.addCustomRepository(repositoryId, customRepository);
         notifyListeners();
@@ -250,10 +250,8 @@ public class VMMService implements Service, RealmConfigChangeListener {
         return result;
     }
 
-    public String getRealmName() throws WIMException {
-        String result = null;
-        result = profileManager.getRealmName();
-        return result;
+    public String getRealmName() {
+        return profileManager.getDefaultRealmName();
     }
 
     /*
@@ -279,7 +277,7 @@ public class VMMService implements Service, RealmConfigChangeListener {
 
         // Iterate over all configured realms and for each realm verify the participating base entry
         // against repository base entries.
-        Set<String> realmNames = configMgr.getRealmNames();
+        Set<String> realmNames = configMgr.getConfiguredRealmNames();
 
         if (realmNames != null) {
             for (String realmName : realmNames) {

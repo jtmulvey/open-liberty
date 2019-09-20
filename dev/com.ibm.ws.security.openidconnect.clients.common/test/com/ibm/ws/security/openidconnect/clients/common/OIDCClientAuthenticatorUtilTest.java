@@ -21,11 +21,13 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -230,8 +232,8 @@ public class OIDCClientAuthenticatorUtilTest {
 
         // digest with the client_secret value
         String tmpStr = new String(localEncoded);
-        tmpStr = tmpStr.concat("_").concat(convClientConfig.toString()+clientSecret);
-        
+        tmpStr = tmpStr.concat("_").concat(convClientConfig.toString() + clientSecret);
+
         encodedReqParams = new String(localEncoded).concat("_").concat(HashUtils.digest(tmpStr));
         reqParameterCookie = new Cookie(ClientConstants.WAS_OIDC_CODE, encodedReqParams);
     }
@@ -783,6 +785,8 @@ public class OIDCClientAuthenticatorUtilTest {
                 will(returnValue(false));
                 one(clientConfig).getAuthorizationEndpointUrl(); // TODO: Refactor code to remove duplicate calls
                 will(returnValue(TEST_AUTHORIZATION_ENDPOINT));
+                allowing(clientConfig).getUseSystemPropertiesForHttpClientConnections();
+                will(returnValue(false));
             }
         });
     }
@@ -889,6 +893,8 @@ public class OIDCClientAuthenticatorUtilTest {
                 will(returnValue(false));
                 one(clientConfig).getTokenEndpointAuthMethod();
                 will(returnValue(authMethod));
+                allowing(clientConfig).getUseSystemPropertiesForHttpClientConnections();
+                will(returnValue(false));
             }
         });
 
@@ -900,7 +906,7 @@ public class OIDCClientAuthenticatorUtilTest {
             {
                 one(oidcClientUtil).getTokensFromAuthzCode(TEST_TOKEN_ENDPOINT, CLIENT01, SHARED_KEY,
                         TEST_REDIRECT_URL, TEST_AUTHORIZATION_CODE,
-                        TEST_GRANT_TYPE, sslSocketFactory, false, authMethod, null);
+                        TEST_GRANT_TYPE, sslSocketFactory, false, authMethod, null, null, false);
                 will(returnValue(tokens));
             }
         });
@@ -1076,7 +1082,8 @@ public class OIDCClientAuthenticatorUtilTest {
             {
                 one(oidcClientUtil).getTokensFromAuthzCode(TEST_TOKEN_ENDPOINT, CLIENT01, SHARED_KEY,
                         TEST_REDIRECT_URL, TEST_AUTHORIZATION_CODE,
-                        TEST_GRANT_TYPE, sslSocketFactory, false, authMethod, null);
+                        TEST_GRANT_TYPE, sslSocketFactory, false, authMethod, null, null, false);
+
                 will(throwException(throwable));
             }
         });
@@ -1135,6 +1142,387 @@ public class OIDCClientAuthenticatorUtilTest {
             });
             String returnedUrl = oidcCAUtil.setRedirectUrlIfNotDefined(req, convClientConfig);
             assertEquals("Redirect URL did not match expected value.", redirectUri, returnedUrl);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_forwardLoginParametersNull() {
+        try {
+            String query = "";
+            final List<String> configuredValue = null;
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+            assertEquals("Returned query should have matched original query.", query, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_forwardLoginParametersEmpty() {
+        try {
+            String query = "The quick brown fox jumps over the lazy dog.";
+            final List<String> configuredValue = new ArrayList<String>();
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+            assertEquals("Returned query should have matched original query.", query, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_emptyString_requestMissingThatParameter() {
+        try {
+            String query = "scope=myScope";
+            final String paramName = "";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(null));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+            assertEquals("Returned query should have matched original query.", query, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_emptyString_matchingParam_emptyString() {
+        try {
+            String query = "some existing query string";
+            final String paramName = "";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            final String paramValue = "";
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(paramValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            String expectedQuery = query + "&=";
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_emptyString_matchingParam_whitespaceOnly() {
+        try {
+            String query = "some existing query string";
+            final String paramName = "";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            final String paramValue = " \t\n \r";
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(paramValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            // Parameter value should have been encoded
+            String expectedQuery = query + "&=+%09%0A+%0D";
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_emptyString_matchingParam_nonEmpty() {
+        try {
+            String query = "some existing query string";
+            final String paramName = "";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            final String paramValue = "some_simple_param_value";
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(paramValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            String expectedQuery = query + "&=" + paramValue;
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_whitespace_requestMissingThatParameter() {
+        try {
+            String query = "some existing query string";
+            final String paramName = " ";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(null));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+            assertEquals("Returned query should have matched original query.", query, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_whitespace_matchingParam_whitespaceOnly() {
+        try {
+            String query = "some existing query string";
+            final String paramName = "\n\r\t";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            final String paramValue = "    ";
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(paramValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            // Parameter name and value should have been encoded
+            String expectedQuery = query + "&" + "%0A%0D%09" + "=" + "++++";
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_whitespace_matchingParam_nonEmpty() {
+        try {
+            String query = "some existing query string";
+            final String paramName = "\n \n";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            final String paramValue = "some parameter value";
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(paramValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            // Parameter name and value should have been encoded
+            String expectedQuery = query + "&" + "%0A+%0A" + "=" + "some+parameter+value";
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_nonEmpty_requestMissingThatParameter() {
+        try {
+            String query = "scope=mySCope";
+            final String paramName = "missingParam";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(null));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+            assertEquals("Returned query should have matched original query.", query, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_oneParameter_specialChars_matchingParam_specialChars() {
+        try {
+            String query = "scope=myScope&redirect_uri=some value";
+            final String paramName = "`~!@#$%^&*()-_=+[{]}\\|;:'\",<.>/?";
+            final List<String> configuredValue = Arrays.asList(paramName);
+            final String paramValue = paramName;
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValue));
+                    one(req).getParameter(paramName);
+                    will(returnValue(paramValue));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            String encodedSpecialChars = "%60%7E%21%40%23%24%25%5E%26*%28%29-_%3D%2B%5B%7B%5D%7D%5C%7C%3B%3A%27%22%2C%3C.%3E%2F%3F";
+            // Parameter name and value should have been encoded
+            String expectedQuery = query + "&" + encodedSpecialChars + "=" + encodedSpecialChars;
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_multipleParameters_noneInRequest() {
+        try {
+            String query = "initial query";
+            final List<String> configuredValues = Arrays.asList("", "my param", "Special! \n\t (Param) ", " 1234567890 ");
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValues));
+                }
+            });
+            for (final String configuredVal : configuredValues) {
+                mock.checking(new Expectations() {
+                    {
+                        one(req).getParameter(configuredVal);
+                        will(returnValue(null));
+                    }
+                });
+            }
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+            assertEquals("Returned query should have matched original query.", query, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_multipleParameters_oneInRequest() {
+        try {
+            String query = "initial query";
+            final String emptyParam = "";
+            final String paramWithSpace = "my param";
+            final String paramWithSpecialChars = "Special! \n\t (Param) ";
+            final String paramWithNumbers = " 1234567890 ";
+            final List<String> configuredValues = Arrays.asList(emptyParam, paramWithSpace, paramWithSpecialChars, paramWithNumbers);
+            final String foundParamValue = "My\nParam\rValue";
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValues));
+                    one(req).getParameter(emptyParam);
+                    will(returnValue(null));
+                    // The request happens to have this parameter
+                    one(req).getParameter(paramWithSpace);
+                    will(returnValue(foundParamValue));
+                    one(req).getParameter(paramWithSpecialChars);
+                    will(returnValue(null));
+                    one(req).getParameter(paramWithNumbers);
+                    will(returnValue(null));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            // Parameter name and value should have been encoded
+            String expectedQuery = query + "&" + "my+param" + "=" + "My%0AParam%0DValue";
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_multipleParameters_multipleInRequest() {
+        try {
+            String query = "initial query";
+            final String emptyParam = "";
+            final String paramWithSpace = "my param";
+            final String paramWithSpecialChars = "Special! \n\t (Param) ";
+            final String paramWithNumbers = " 1234567890 ";
+            final List<String> configuredValues = Arrays.asList(emptyParam, paramWithSpace, paramWithSpecialChars, paramWithNumbers);
+            final String foundParamValue1 = "My\nParam\rValue";
+            final String foundParamValue2 = "a_simple_param_value";
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValues));
+                    one(req).getParameter(emptyParam);
+                    will(returnValue(null));
+                    one(req).getParameter(paramWithSpace);
+                    will(returnValue(foundParamValue1));
+                    one(req).getParameter(paramWithSpecialChars);
+                    will(returnValue(null));
+                    one(req).getParameter(paramWithNumbers);
+                    will(returnValue(foundParamValue2));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            // Parameter names and values should have been encoded
+            String expectedQuery = query + "&" + "my+param" + "=" + "My%0AParam%0DValue" + "&" + "+1234567890+" + "=" + foundParamValue2;
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
+        } catch (Throwable t) {
+            outputMgr.failWithThrowable(testName.getMethodName(), t);
+        }
+    }
+
+    @Test
+    public void testAddForwardLoginParamsToQuery_multipleParameters_allInRequest() {
+        try {
+            String query = "initial query";
+            final String paramName1 = "name1";
+            final String paramName2 = "name2";
+            final String paramName3 = "name3";
+            final String paramName4 = "name4";
+            final String paramValue1 = "value1";
+            final String paramValue2 = "value2";
+            final String paramValue3 = "value3";
+            final String paramValue4 = "value4";
+            final List<String> configuredValues = Arrays.asList(paramName1, paramName2, paramName3, paramName4);
+            mock.checking(new Expectations() {
+                {
+                    one(convClientConfig).getForwardLoginParameter();
+                    will(returnValue(configuredValues));
+                    one(req).getParameter(paramName1);
+                    will(returnValue(paramValue1));
+                    one(req).getParameter(paramName2);
+                    will(returnValue(paramValue2));
+                    one(req).getParameter(paramName3);
+                    will(returnValue(paramValue3));
+                    one(req).getParameter(paramName4);
+                    will(returnValue(paramValue4));
+                }
+            });
+            String newQuery = oidcCAUtil.addForwardLoginParamsToQuery(convClientConfig, req, query);
+
+            // Parameter names and values should have been encoded
+            String expectedQuery = query + "&" + paramName1 + "=" + paramValue1 + "&" + paramName2 + "=" + paramValue2 + "&" + paramName3 + "=" + paramValue3 + "&" + paramName4 + "=" + paramValue4;
+            assertEquals("Returned query did not match expected value.", expectedQuery, newQuery);
         } catch (Throwable t) {
             outputMgr.failWithThrowable(testName.getMethodName(), t);
         }
@@ -1528,7 +1916,10 @@ public class OIDCClientAuthenticatorUtilTest {
                 SSLSocketFactory sslSocketFactory,
                 boolean b,
                 String authMethod,
-                String resources) throws HttpException, IOException {
+                String resources,
+                HashMap<String, String> customParams,
+                boolean useJvmProps) throws HttpException, IOException {
+
             if (ioe != null) {
                 throw ioe;
             }

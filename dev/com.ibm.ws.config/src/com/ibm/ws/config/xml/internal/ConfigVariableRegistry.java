@@ -10,18 +10,27 @@
  *******************************************************************************/
 package com.ibm.ws.config.xml.internal;
 
+import static com.ibm.ws.config.admin.internal.ConfigurationStorageHelper.readMap;
+import static com.ibm.ws.config.admin.internal.ConfigurationStorageHelper.toMapOrDictionary;
+import static com.ibm.ws.config.admin.internal.ConfigurationStorageHelper.writeMap;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
+import com.ibm.websphere.ras.annotation.Trivial;
 import com.ibm.ws.config.xml.ConfigVariables;
 import com.ibm.ws.config.xml.internal.metatype.ExtendedAttributeDefinition;
 import com.ibm.ws.ffdc.FFDCFilter;
@@ -43,12 +52,10 @@ class ConfigVariableRegistry implements VariableRegistry, ConfigVariables {
     private Map<String, Object> variableCache;
     // cache of variables defined in default configurations
     private Map<String, Object> defaultVariableCache;
+    // Variables passed in as command line arguments. These override all other variables.
+    private final List<CommandLineVariable> commandLineVariables = new ArrayList<CommandLineVariable>();
 
-    public ConfigVariableRegistry(VariableRegistry registry) {
-        this(registry, null);
-    }
-
-    public ConfigVariableRegistry(VariableRegistry registry, File variableCacheFile) {
+    public ConfigVariableRegistry(VariableRegistry registry, String[] cmdArgs, File variableCacheFile) {
         this.registry = registry;
         this.configVariables = Collections.emptyMap();
         this.variableCacheFile = variableCacheFile;
@@ -61,6 +68,62 @@ class ConfigVariableRegistry implements VariableRegistry, ConfigVariables {
         if (this.defaultVariableCache == null) {
             this.defaultVariableCache = new HashMap<String, Object>();
         }
+
+        for (String cmdArg : cmdArgs) {
+            CommandLineVariable clv = new CommandLineVariable(cmdArg);
+            if (clv.isValid()) {
+                commandLineVariables.add(clv);
+                registry.replaceVariable(clv.getName(), clv.getValue());
+            }
+        }
+
+    }
+
+    @Trivial
+    private static final class CommandLineVariable {
+        private final String name;
+        private final String value;
+        private final boolean isValid;
+
+        /**
+         * @param cmdArg
+         */
+        public CommandLineVariable(String cmdArg) {
+            int idx = cmdArg.indexOf('=');
+            if (!cmdArg.startsWith("--") || (idx <= 2)) {
+                // Must start with "--". No equal sign or an equal sign that starts the variable means this is invalid
+                isValid = false;
+                name = null;
+                value = null;
+            } else {
+                isValid = true;
+                name = cmdArg.substring(2, idx);
+                value = cmdArg.substring(idx + 1);
+            }
+
+        }
+
+        /**
+         * @return
+         */
+        public boolean isValid() {
+            return this.isValid;
+        }
+
+        /**
+         * @return
+         */
+        public String getName() {
+            return this.name;
+        }
+
+        /**
+         * @return
+         */
+        public String getValue() {
+            return this.value;
+        }
+
     }
 
     /*
@@ -75,9 +138,17 @@ class ConfigVariableRegistry implements VariableRegistry, ConfigVariables {
         for (Map.Entry<String, ConfigVariable> entry : newVariables.entrySet()) {
             String variableName = entry.getKey();
             String variableValue = entry.getValue().getValue();
-            registry.replaceVariable(variableName, variableValue);
+            if (variableValue != null)
+                registry.replaceVariable(variableName, variableValue);
+            else
+                registry.removeVariable(variableName);
         }
         configVariables = newVariables;
+
+        // Override with command line variables if necessary
+        for (CommandLineVariable clv : commandLineVariables) {
+            registry.replaceVariable(clv.getName(), clv.getValue());
+        }
     }
 
     /*
@@ -171,43 +242,28 @@ class ConfigVariableRegistry implements VariableRegistry, ConfigVariables {
 
     }
 
-    @SuppressWarnings("unchecked")
     @FFDCIgnore({ Exception.class })
     private synchronized void loadVariableCache() {
-        FileInputStream fis = null;
-        ObjectInputStream ois = null;
-        try {
-            fis = new FileInputStream(variableCacheFile);
-            ois = new ObjectInputStream(fis);
-            this.variableCache = (Map<String, Object>) ois.readObject();
-            this.defaultVariableCache = (Map<String, Object>) ois.readObject();
+        try (DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(variableCacheFile)))) {
+            readMap(in, toMapOrDictionary(this.variableCache = new HashMap<>()));
+            readMap(in, toMapOrDictionary(this.defaultVariableCache = new HashMap<>()));
         } catch (Exception e) {
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                 Tr.debug(tc, "loadVariableCache():  Exception = " + e.getMessage());
             }
-        } finally {
-            ConfigUtil.closeIO(ois);
-            ConfigUtil.closeIO(fis);
         }
     }
 
     @FFDCIgnore({ IOException.class })
     private synchronized void saveVariableCache() {
-        FileOutputStream fos = null;
-        ObjectOutputStream oos = null;
-        try {
-            fos = new FileOutputStream(variableCacheFile, false);
-            oos = new ObjectOutputStream(fos);
-            oos.writeObject(variableCache);
-            oos.writeObject(defaultVariableCache);
+        try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(variableCacheFile)))) {
+            writeMap(out, toMapOrDictionary(variableCache));
+            writeMap(out, toMapOrDictionary(defaultVariableCache));
         } catch (IOException e) {
             if (TraceComponent.isAnyTracingEnabled() && tc.isDebugEnabled()) {
                 Tr.debug(tc, "saveVariableCache():  Exception = " + e.getMessage());
             }
             FFDCFilter.processException(e, ConfigVariableRegistry.class.getName(), "saveVariableCache(): Exception = " + e.getMessage());
-        } finally {
-            ConfigUtil.closeIO(oos);
-            ConfigUtil.closeIO(fos);
         }
     }
 
@@ -281,7 +337,7 @@ class ConfigVariableRegistry implements VariableRegistry, ConfigVariables {
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see com.ibm.ws.config.xml.Variables#getUserDefinedVariables()
      */
     @Override
@@ -289,7 +345,37 @@ class ConfigVariableRegistry implements VariableRegistry, ConfigVariables {
         HashMap<String, String> userDefinedVariables = new HashMap<String, String>();
         for (Map.Entry<String, ConfigVariable> entry : configVariables.entrySet()) {
             ConfigVariable var = entry.getValue();
-            userDefinedVariables.put(var.getName(), var.getValue());
+            if (var.getValue() != null) {
+                userDefinedVariables.put(var.getName(), var.getValue());
+            }
+        }
+        for (CommandLineVariable clVar : commandLineVariables) {
+            userDefinedVariables.put(clVar.getName(), clVar.getValue());
+        }
+        return userDefinedVariables;
+    }
+
+    /**
+     * Returns the defaultValue from the variable definition, or null if it doesn't exist.
+     */
+    public String lookupVariableDefaultValue(String variableName) {
+        ConfigVariable cv = configVariables.get(variableName);
+        return cv == null ? null : cv.getDefaultValue();
+    }
+
+    /*
+     * (non-Javadoc)
+     *
+     * @see com.ibm.ws.config.xml.ConfigVariables#getUserDefinedVariableDefaults()
+     */
+    @Override
+    public Map<String, String> getUserDefinedVariableDefaults() {
+        HashMap<String, String> userDefinedVariables = new HashMap<String, String>();
+        for (Map.Entry<String, ConfigVariable> entry : configVariables.entrySet()) {
+            ConfigVariable var = entry.getValue();
+            if (var.getValue() == null && var.getDefaultValue() != null) {
+                userDefinedVariables.put(var.getName(), var.getDefaultValue());
+            }
         }
         return userDefinedVariables;
     }

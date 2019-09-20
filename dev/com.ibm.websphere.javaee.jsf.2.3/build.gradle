@@ -9,14 +9,6 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 
-plugins {
-  id "net.ossindex.audit" version "0.3.8-beta"
-}
-
-audit {
-    failOnError = false
-}
-
 // Global vars
 File downloadSrcDir = project.file('build/source')
 File downloadJavadocDir = project.file('build/javadoc')
@@ -27,8 +19,8 @@ configurations {
 }
 
 dependencies {
-    sourceJar 'org.apache.myfaces.core:myfaces-api:2.3.2:sources'
-    javadocJar 'org.apache.myfaces.core:myfaces-api:2.3.2:javadoc'
+    sourceJar 'org.apache.myfaces.core:myfaces-api:2.3.3:sources'
+    javadocJar 'org.apache.myfaces.core:myfaces-api:2.3.3:javadoc'
 }
 
 task copySource(type: Copy) {
