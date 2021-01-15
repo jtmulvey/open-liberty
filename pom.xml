@@ -1699,17 +1699,17 @@
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
       <artifactId>websocket-client</artifactId>
-      <version>9.2.2.v20140723</version>
+      <version>9.4.35.v20201120</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
       <artifactId>websocket-client</artifactId>
-      <version>9.4.5.v20170502</version>
+      <version>9.4.35.v20201120</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
       <artifactId>websocket-client</artifactId>
-      <version>9.4.7.RC0</version>
+      <version>9.4.35.v20201120</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
