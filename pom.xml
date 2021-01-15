@@ -1679,7 +1679,7 @@
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
       <artifactId>javax-websocket-client-impl</artifactId>
-      <version>9.2.2.v20140723</version>
+      <version>9.4.35.v20201120</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.websocket</groupId>
