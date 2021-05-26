@@ -2874,22 +2874,22 @@
     <dependency>
       <groupId>org.springframework.security</groupId>
       <artifactId>spring-security-web</artifactId>
-      <version>5.0.7.RELEASE</version>
+      <version>5.5.0</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.security</groupId>
       <artifactId>spring-security-web</artifactId>
-      <version>5.1.3.RELEASE</version>
+      <version>5.5.0</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.security</groupId>
       <artifactId>spring-security-web</artifactId>
-      <version>5.2.2.RELEASE</version>
+      <version>5.5.0</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.security</groupId>
       <artifactId>spring-security-web</artifactId>
-      <version>5.3.2.RELEASE</version>
+      <version>5.5.0</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
@@ -3004,57 +3004,57 @@
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-web</artifactId>
-      <version>3.0.7.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-web</artifactId>
-      <version>5.0.8.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-web</artifactId>
-      <version>5.1.4.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-web</artifactId>
-      <version>5.2.4.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-web</artifactId>
-      <version>5.2.6.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-webflux</artifactId>
-      <version>5.0.8.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-webmvc</artifactId>
-      <version>5.0.8.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-webmvc</artifactId>
-      <version>5.1.4.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-webmvc</artifactId>
-      <version>5.2.4.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-webmvc</artifactId>
-      <version>5.2.6.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-websocket</artifactId>
-      <version>5.0.8.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
@@ -3694,12 +3694,12 @@
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-web</artifactId>
-      <version>4.3.13.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-web</artifactId>
-      <version>5.0.4.RELEASE</version>
+      <version>5.2.15.RELEASE</version>
     </dependency>
     <dependency>
       <groupId>xml-resolver</groupId>
