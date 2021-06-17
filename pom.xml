@@ -1184,7 +1184,7 @@
     <dependency>
       <groupId>org.apache.cxf</groupId>
       <artifactId>cxf-rt-security-saml</artifactId>
-      <version>3.3.6</version>
+      <version>3.4.4</version>
     </dependency>
     <dependency>
       <groupId>org.apache.cxf</groupId>
@@ -1484,17 +1484,17 @@
     <dependency>
       <groupId>org.apache.myfaces.core</groupId>
       <artifactId>myfaces-impl</artifactId>
-      <version>2.2.12</version>
+      <version>2.3-next-M3</version>
     </dependency>
     <dependency>
       <groupId>org.apache.myfaces.core</groupId>
       <artifactId>myfaces-impl</artifactId>
-      <version>2.3.7</version>
+      <version>2.3-next-M3</version>
     </dependency>
     <dependency>
       <groupId>org.apache.myfaces.core</groupId>
       <artifactId>myfaces-impl</artifactId>
-      <version>3.0.0-RC1</version>
+      <version>2.3-next-M3</version>
     </dependency>
     <dependency>
       <groupId>org.apache.neethi</groupId>
@@ -1584,27 +1584,27 @@
     <dependency>
       <groupId>org.apache.wss4j</groupId>
       <artifactId>wss4j-ws-security-common</artifactId>
-      <version>2.3.0</version>
+      <version>2.3.2</version>
     </dependency>
     <dependency>
       <groupId>org.apache.wss4j</groupId>
       <artifactId>wss4j-ws-security-dom</artifactId>
-      <version>2.3.0</version>
+      <version>2.3.2</version>
     </dependency>
     <dependency>
       <groupId>org.apache.wss4j</groupId>
       <artifactId>wss4j-ws-security-policy-stax</artifactId>
-      <version>2.3.0</version>
+      <version>2.3.2</version>
     </dependency>
     <dependency>
       <groupId>org.apache.wss4j</groupId>
       <artifactId>wss4j-ws-security-stax</artifactId>
-      <version>2.3.0</version>
+      <version>2.3.2</version>
     </dependency>
     <dependency>
       <groupId>org.apache.wss4j</groupId>
       <artifactId>wss4j-ws-security-web</artifactId>
-      <version>2.3.0</version>
+      <version>2.3.2</version>
     </dependency>
     <dependency>
       <groupId>org.bouncycastle</groupId>
@@ -2444,7 +2444,7 @@
     <dependency>
       <groupId>org.mock-server</groupId>
       <artifactId>mockserver-netty</artifactId>
-      <version>3.10.7</version>
+      <version>5.11.0</version>
     </dependency>
     <dependency>
       <groupId>org.mockito</groupId>
@@ -2499,37 +2499,37 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-profile-impl</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-saml-api</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-saml-impl</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-security-api</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-security-impl</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-soap-api</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-soap-impl</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
@@ -2554,22 +2554,22 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xacml-saml-api</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xacml-saml-impl</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xmlsec-api</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xmlsec-impl</artifactId>
-      <version>3.4.5</version>
+      <version>3.4.6</version>
     </dependency>
     <dependency>
       <groupId>org.osgi</groupId>
