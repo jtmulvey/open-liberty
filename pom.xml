@@ -459,12 +459,12 @@
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-core</artifactId>
-      <version>1.31.1</version>
+      <version>1.43.1</version>
     </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-netty</artifactId>
-      <version>1.31.1</version>
+      <version>1.43.1</version>
     </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
