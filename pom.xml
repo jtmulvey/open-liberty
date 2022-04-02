@@ -2439,7 +2439,7 @@
     <dependency>
       <groupId>org.mock-server</groupId>
       <artifactId>mockserver-core</artifactId>
-      <version>3.10.7</version>
+      <version>5.13.1</version>
     </dependency>
     <dependency>
       <groupId>org.mock-server</groupId>
