@@ -109,7 +109,7 @@
     <dependency>
       <groupId>com.fasterxml.jackson.module</groupId>
       <artifactId>jackson-module-parameter-names</artifactId>
-      <version>2.11.2</version>
+      <version>2.11.3</version>
     </dependency>
     <dependency>
       <groupId>com.github.docker-java</groupId>
@@ -164,7 +164,7 @@
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java-util</artifactId>
-      <version>3.13.0</version>
+      <version>3.20.0</version>
     </dependency>
     <dependency>
       <groupId>com.google.protobuf</groupId>
@@ -2479,12 +2479,12 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-core</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-messaging-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
@@ -2494,7 +2494,7 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-profile-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
@@ -2504,37 +2504,37 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-saml-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-saml-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-security-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-security-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-soap-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-soap-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-storage-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
@@ -2549,27 +2549,27 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xacml-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xacml-saml-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xacml-saml-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xmlsec-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xmlsec-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.osgi</groupId>
