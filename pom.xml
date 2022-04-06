@@ -84,12 +84,12 @@
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jdk8</artifactId>
-      <version>2.11.2</version>
+      <version>2.12.6</version>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>
       <artifactId>jackson-datatype-jsr310</artifactId>
-      <version>2.11.2</version>
+      <version>2.12.6</version>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.jaxrs</groupId>
@@ -164,7 +164,7 @@
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java-util</artifactId>
-      <version>3.13.0</version>
+      <version>3.16.1</version>
     </dependency>
     <dependency>
       <groupId>com.google.protobuf</groupId>
@@ -579,7 +579,7 @@
     <dependency>
       <groupId>io.opencensus</groupId>
       <artifactId>opencensus-contrib-grpc-metrics</artifactId>
-      <version>0.27.0</version>
+      <version>0.27.1</version>
     </dependency>
     <dependency>
       <groupId>io.opentracing</groupId>
@@ -2489,7 +2489,7 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-messaging-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
@@ -2499,7 +2499,7 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-profile-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
@@ -2539,12 +2539,12 @@
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-storage-impl</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
       <artifactId>opensaml-xacml-api</artifactId>
-      <version>3.4.5</version>
+      <version>4.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.opensaml</groupId>
@@ -2804,32 +2804,32 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot</artifactId>
-      <version>1.5.9.RELEASE</version>
+      <version>2.5.8</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot</artifactId>
-      <version>2.0.0.RELEASE</version>
+      <version>2.5.8</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot</artifactId>
-      <version>2.0.4.RELEASE</version>
+      <version>2.5.8</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot</artifactId>
-      <version>2.1.2.RELEASE</version>
+      <version>2.5.8</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot</artifactId>
-      <version>2.2.5.RELEASE</version>
+      <version>2.5.8</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot</artifactId>
-      <version>2.3.0.RELEASE</version>
+      <version>2.5.8</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.security</groupId>
