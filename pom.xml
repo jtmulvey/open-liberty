@@ -579,7 +579,7 @@
     <dependency>
       <groupId>io.opencensus</groupId>
       <artifactId>opencensus-contrib-grpc-metrics</artifactId>
-      <version>0.27.0</version>
+      <version>0.27.1</version>
     </dependency>
     <dependency>
       <groupId>io.opentracing</groupId>
@@ -2444,7 +2444,7 @@
     <dependency>
       <groupId>org.mock-server</groupId>
       <artifactId>mockserver-netty</artifactId>
-      <version>3.10.7</version>
+      <version>5.14.0</version>
     </dependency>
     <dependency>
       <groupId>org.mockito</groupId>
