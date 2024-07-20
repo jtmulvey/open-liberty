@@ -1179,7 +1179,7 @@
     <dependency>
       <groupId>org.apache.cxf</groupId>
       <artifactId>cxf-rt-rs-service-description</artifactId>
-      <version>3.1.18</version>
+      <version>3.5.9</version>
     </dependency>
     <dependency>
       <groupId>org.apache.cxf</groupId>
@@ -1259,7 +1259,7 @@
     <dependency>
       <groupId>org.apache.cxf</groupId>
       <artifactId>cxf-tools-wadlto-jaxrs</artifactId>
-      <version>3.1.18</version>
+      <version>3.5.9</version>
     </dependency>
     <dependency>
       <groupId>org.apache.deltaspike.cdictrl</groupId>
@@ -3479,7 +3479,7 @@
     <dependency>
       <groupId>org.apache.cxf</groupId>
       <artifactId>cxf-rt-rs-service-description</artifactId>
-      <version>3.3.0</version>
+      <version>3.5.9</version>
     </dependency>
     <dependency>
       <groupId>org.apache.cxf</groupId>
@@ -3514,7 +3514,7 @@
     <dependency>
       <groupId>org.apache.cxf</groupId>
       <artifactId>cxf-tools-wadlto-jaxrs</artifactId>
-      <version>3.3.0</version>
+      <version>3.5.9</version>
     </dependency>
     <dependency>
       <groupId>org.apache.felix</groupId>
