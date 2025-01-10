@@ -1429,7 +1429,7 @@
     <dependency>
       <groupId>org.apache.james</groupId>
       <artifactId>apache-mime4j-storage</artifactId>
-      <version>0.8.3</version>
+      <version>0.8.12</version>
     </dependency>
     <dependency>
       <groupId>org.apache.johnzon</groupId>
@@ -2269,7 +2269,7 @@
     <dependency>
       <groupId>org.jboss.narayana.rts</groupId>
       <artifactId>lra-coordinator-jar</artifactId>
-      <version>5.10.6.Final</version>
+      <version>7.1.0.Final</version>
     </dependency>
     <dependency>
       <groupId>org.jboss.narayana.rts</groupId>
